@@ -28,9 +28,9 @@ function Tab.new(config)
 		Name = config.name,
 		Size = UDim2.new(1, -4, 0, BUTTON_HEIGHT),
 		BackgroundColor3 = Theme.SurfaceAlt,
-		Text = "  " .. config.name,
+		Text = "    " .. config.name,
 		Font = Theme.FontMedium,
-		TextSize = 12,
+		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -38,6 +38,18 @@ function Tab.new(config)
 		Parent = config.buttonParent,
 	})
 	Builder.corner(self._btn, 7)
+
+	local indicator = Builder.frame({
+		Name = "ActiveIndicator",
+		Size = UDim2.new(0, 3, 0.65, 0),
+		Position = UDim2.new(0, 2, 0.175, 0),
+		BackgroundColor3 = config.accent,
+		Visible = false,
+		ZIndex = 8,
+		Parent = self._btn,
+	})
+	Builder.pillCorner(indicator)
+	self._indicator = indicator
 
 	self._page = Builder.new("ScrollingFrame", {
 		Name = config.name,
@@ -77,9 +89,12 @@ end
 
 function Tab:setActive(active)
 	self._page.Visible = active
-	self._btn.BackgroundColor3 = active and self._accent or Theme.SurfaceAlt
-	self._btn.TextColor3 = active and Theme.White or Theme.TextDim
-	self._btn.Font = active and Theme.FontMedium or Theme.FontRegular
+	self._btn.BackgroundColor3 = active and Theme.CardHover or Theme.SurfaceAlt
+	self._btn.TextColor3 = active and Theme.TextMain or Theme.TextDim
+	self._btn.Font = active and Theme.FontBold or Theme.FontMedium
+	if self._indicator then
+		self._indicator.Visible = active
+	end
 end
 
 -- Returns the y offset for the next widget and advances the cursor past it.
