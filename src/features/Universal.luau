@@ -350,23 +350,6 @@ return function(hub, tab, cleanup)
 	-- ------------------------------------------------------------- UTILITIES
 	tab:AddSection("Server Utilities")
 
-	tab:AddButton("Teleport to Spawn", function()
-		local root = Util.getRootPart()
-		if not root then
-			hub:notify("Character not ready", "error")
-			return
-		end
-
-		local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
-		if not spawn then
-			hub:notify("No spawn location found", "error")
-			return
-		end
-
-		root.CFrame = spawn.CFrame + Vector3.new(0, 4, 0)
-		hub:notify("Teleported to spawn", "success")
-	end)
-
 	tab:AddButton("Rejoin Server", function()
 		local options = Instance.new("TeleportOptions")
 		options.ServerInstanceId = game.JobId
