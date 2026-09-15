@@ -685,29 +685,51 @@ function Movement:toggleAutoCash(enabled)
 	Util.spawn(function()
 		while self.autoCashRunning do
 			pcall(function()
+				-- Method 1: Required Module Remotes
 				local ok, Remotes = pcall(function()
 					return require(ReplicatedStorage.Shared.Remotes)
 				end)
 				if ok and Remotes and Remotes.AwayEarnings and Remotes.AwayEarnings.AskCollect then
-					Remotes.AwayEarnings.AskCollect:InvokeServer()
+					pcall(function()
+						Remotes.AwayEarnings.AskCollect:InvokeServer({ Kind = "Claim" })
+					end)
 				end
 
+				-- Method 2: Direct RemoteFunction instances in ReplicatedStorage
+				local rfCollect = ReplicatedStorage:FindFirstChild("RF/AwayEarnings/AskCollect", true)
+				if rfCollect and rfCollect:IsA("RemoteFunction") then
+					pcall(function()
+						rfCollect:InvokeServer({ Kind = "Claim" })
+					end)
+				end
+
+				-- Method 3: Touch collection pads or proximity prompts in plots
 				local root = Util.getRootPart()
 				if root then
-					for _, part in ipairs(workspace:GetDescendants()) do
-						if part:IsA("BasePart") and string.find(string.lower(part.Name), "collect", 1, true) then
+					for _, desc in ipairs(workspace:GetDescendants()) do
+						if desc:IsA("ProximityPrompt") and (string.find(string.lower(desc.ActionText), "collect", 1, true) or string.find(string.lower(desc.ActionText), "claim", 1, true)) then
+							pcall(function()
+								if fireproximityprompt then
+									fireproximityprompt(desc, 0, true)
+								else
+									desc:InputHoldBegin()
+									task.wait(0.2)
+									desc:InputHoldEnd()
+								end
+							end)
+						elseif desc:IsA("BasePart") and (string.find(string.lower(desc.Name), "collect", 1, true) or string.find(string.lower(desc.Name), "offline", 1, true)) then
 							pcall(function()
 								if firetouchinterest then
-									firetouchinterest(root, part, 0)
+									firetouchinterest(root, desc, 0)
 									task.wait()
-									firetouchinterest(root, part, 1)
+									firetouchinterest(root, desc, 1)
 								end
 							end)
 						end
 					end
 				end
 			end)
-			task.wait(6)
+			task.wait(5)
 		end
 	end)
 end
