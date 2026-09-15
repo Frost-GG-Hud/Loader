@@ -57,6 +57,8 @@ function Window.new(opts)
 
 	self.toasts = Notify.new(self.screenGui, { accent = self.accent })
 
+	self:_buildFloatingToggle()
+
 	self.drag = DragController.new({
 		window = self.window,
 		canResize = function()
@@ -169,6 +171,36 @@ function Window:_buildBody()
 		Thickness = 1,
 		Transparency = 0.6,
 	})
+end
+
+function Window:_buildFloatingToggle()
+	local floatBtn = Builder.new("TextButton", {
+		Name = "FloatingToggle",
+		Size = UDim2.fromOffset(44, 44),
+		Position = UDim2.new(0, 16, 0.45, 0),
+		BackgroundColor3 = Theme.Window,
+		BackgroundTransparency = 0.15,
+		Text = "❄️",
+		TextSize = 20,
+		Font = Theme.FontBold,
+		TextColor3 = Theme.White,
+		AutoButtonColor = false,
+		Active = true,
+		Draggable = true,
+		ZIndex = 50,
+		Parent = self.screenGui,
+	})
+	Builder.pillCorner(floatBtn)
+	Builder.stroke(floatBtn, {
+		Color = self.accent,
+		Thickness = 2,
+		Transparency = 0.25,
+	})
+
+	floatBtn.MouseButton1Click:Connect(function()
+		self:toggleVisible()
+	end)
+	self.floatingToggle = floatBtn
 end
 
 function Window:_buildResizeHandle()
@@ -386,6 +418,14 @@ function Window:destroy()
 	if self.toasts then
 		self.toasts:destroy()
 		self.toasts = nil
+	end
+
+	if self.header and self.header.destroy then
+		self.header.destroy()
+	end
+	if self.floatingToggle then
+		self.floatingToggle:Destroy()
+		self.floatingToggle = nil
 	end
 
 	self.bindings:run()
