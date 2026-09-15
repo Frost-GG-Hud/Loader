@@ -28,17 +28,25 @@ function GridRow.dualToggle(tab, leftOpts, rightOpts)
 	local y = tab:nextSlot(ROW_HEIGHT, ROW_GAP)
 	local accent = tab._accent
 
+	local rowFrame = Builder.frame({
+		Name = "GridToggleRow",
+		Size = UDim2.new(1, -12, 0, ROW_HEIGHT),
+		Position = UDim2.fromOffset(6, y),
+		BackgroundTransparency = 1,
+		Parent = tab._page,
+	})
+
 	local function buildToggleCard(opts, isRight)
 		if not opts then return nil end
-		local xPos = isRight and UDim2.new(0.5, 3, 0, y) or UDim2.new(0, 6, 0, y)
-		local width = UDim2.new(0.5, -9, 0, ROW_HEIGHT)
+		local xPos = isRight and UDim2.new(0.5, 3, 0, 0) or UDim2.new(0, 0, 0, 0)
+		local width = UDim2.new(0.5, -3, 1, 0)
 
 		local card = Builder.frame({
 			Name = "GridToggleCard",
 			Size = width,
 			Position = xPos,
 			BackgroundColor3 = Theme.Card,
-			Parent = tab._page,
+			Parent = rowFrame,
 		})
 		Builder.corner(card, Theme.Metrics.CornerCard)
 		Builder.stroke(card, {
@@ -129,24 +137,39 @@ function GridRow.dualToggle(tab, leftOpts, rightOpts)
 
 	local left = buildToggleCard(leftOpts, false)
 	local right = buildToggleCard(rightOpts, true)
-	return { left = left, right = right }
+
+	if tab.registerWidget then
+		local filterWords = ((leftOpts and leftOpts.title) or "") .. " " .. ((rightOpts and rightOpts.title) or "")
+		tab:registerWidget(rowFrame, ROW_HEIGHT, ROW_GAP, filterWords)
+	end
+
+	return { left = left, right = right, _row = rowFrame }
 end
 
 -- Creates a 2-column dual input row (e.g. Speed on left, Steal By Value on right)
 function GridRow.dualInput(tab, leftOpts, rightOpts)
-	local y = tab:nextSlot(ROW_HEIGHT + 8, ROW_GAP)
+	local totalH = ROW_HEIGHT + 8
+	local y = tab:nextSlot(totalH, ROW_GAP)
+
+	local rowFrame = Builder.frame({
+		Name = "GridInputRow",
+		Size = UDim2.new(1, -12, 0, totalH),
+		Position = UDim2.fromOffset(6, y),
+		BackgroundTransparency = 1,
+		Parent = tab._page,
+	})
 
 	local function buildInputCard(opts, isRight)
 		if not opts then return nil end
-		local xPos = isRight and UDim2.new(0.5, 3, 0, y) or UDim2.new(0, 6, 0, y)
-		local width = UDim2.new(0.5, -9, 0, ROW_HEIGHT + 8)
+		local xPos = isRight and UDim2.new(0.5, 3, 0, 0) or UDim2.new(0, 0, 0, 0)
+		local width = UDim2.new(0.5, -3, 1, 0)
 
 		local card = Builder.frame({
 			Name = "GridInputCard",
 			Size = width,
 			Position = xPos,
 			BackgroundColor3 = Theme.Card,
-			Parent = tab._page,
+			Parent = rowFrame,
 		})
 		Builder.corner(card, Theme.Metrics.CornerCard)
 		Builder.stroke(card, {
@@ -217,7 +240,13 @@ function GridRow.dualInput(tab, leftOpts, rightOpts)
 
 	local left = buildInputCard(leftOpts, false)
 	local right = buildInputCard(rightOpts, true)
-	return { left = left, right = right }
+
+	if tab.registerWidget then
+		local filterWords = ((leftOpts and leftOpts.title) or "") .. " " .. ((rightOpts and rightOpts.title) or "")
+		tab:registerWidget(rowFrame, totalH, ROW_GAP, filterWords)
+	end
+
+	return { left = left, right = right, _row = rowFrame }
 end
 
 return function(tab)
