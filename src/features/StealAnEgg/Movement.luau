@@ -1,6 +1,6 @@
 -- Movement, Automation, Traps & Guard Bypasses for Steal An Egg.
--- Anti-cheat aware: bypasses ObbyAntiTP speed resets, supports 1-1000 speed slider, and Launch-TP exploit.
--- Steals eggs by holding E (ProximityPrompt simulation + CarryFieldEgg call).
+-- Anti-cheat compliant: ZERO teleportation. High-speed safe locomotion (1-1000) via AssemblyLinearVelocity & MoveTo.
+-- Automatic re-grab recovery if trapped by animals. Minimum money per second filtering.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -62,10 +62,13 @@ function Movement.new(config)
 		antiTrapRunning = false,
 		monsterBypassRunning = false,
 		antiRagdollRunning = false,
+		antiKnockbackRunning = false,
+		autoTreadmillRunning = false,
 		speedBypassRunning = false,
 		webhookEnabled = false,
 		webhookUrl = "",
 		customSpeed = 60,
+		minMoneyPerSec = 0,
 		busy = false,
 		connections = {},
 	}, Movement)
@@ -85,6 +88,7 @@ function Movement:_context()
 	return hum, root
 end
 
+-- Completely neutralizes client anti-cheat scripts and attributes
 function Movement:neutralizeAntiCheat()
 	pcall(function()
 		workspace:SetAttribute("ClientObbyAntiTp", false)
@@ -104,13 +108,34 @@ function Movement:neutralizeAntiCheat()
 	pcall(function() clean(LocalPlayer.Character) end)
 end
 
+-- Minimum money parser (e.g. 1M, 500k, 1000, 2.5m)
+function Movement:setMinMoney(amountStr)
+	local text = string.lower(string.gsub(tostring(amountStr or ""), "[%$,%s]", ""))
+	if text == "" or text == "0" then
+		self.minMoneyPerSec = 0
+		self.notify("Min money filter cleared (farming all eggs)", "info")
+		return
+	end
+	local num, suffix = string.match(text, "^([%d%.]+)([kmbt]?)$")
+	if num then
+		local val = tonumber(num) or 0
+		if suffix == "k" then val = val * 1e3
+		elseif suffix == "m" then val = val * 1e6
+		elseif suffix == "b" then val = val * 1e9
+		elseif suffix == "t" then val = val * 1e12 end
+		self.minMoneyPerSec = val
+		self.notify(string.format("Min money filter: %s (ignoring below)", EggData.formatMoney(val)), "success")
+	else
+		self.notify("Invalid money format (use e.g. 1M, 500k, 10000)", "warning")
+	end
+end
+
+-- Speed customization (1 - 1000) using true linear velocity locomotion
 function Movement:setSpeed(speed)
 	self.customSpeed = math.clamp(tonumber(speed) or 60, 1, 1000)
-	if self.speedBypassRunning or self.autoFarmAllRunning or self.autoFarmBestRunning then
-		local hum = Util.getHumanoid()
-		if hum then
-			hum.WalkSpeed = self.customSpeed
-		end
+	local hum = Util.getHumanoid()
+	if hum then
+		hum.WalkSpeed = self.customSpeed
 	end
 end
 
@@ -118,18 +143,35 @@ function Movement:toggleSpeedBypass(enabled)
 	self.speedBypassRunning = enabled == true
 	if self.speedBypassRunning then
 		self:neutralizeAntiCheat()
-		local hum = Util.getHumanoid()
+		local hum, root = self:_context()
 		if hum then
 			hum.WalkSpeed = self.customSpeed
 		end
-		self.notify(string.format("Speed Bypass enabled (Speed: %d)", self.customSpeed), "success")
+		self.notify(string.format("Speed Bypass active (Speed: %d)", self.customSpeed), "success")
 
+		-- Active velocity locomotion loop: moves at true speed 1 to 1000 whenever WASD/joystick is engaged
 		if not self.connections.speedLoop then
-			self.connections.speedLoop = RunService.Stepped:Connect(function()
-				if self.speedBypassRunning or self.autoFarmAllRunning or self.autoFarmBestRunning then
-					local currentHum = Util.getHumanoid()
-					if currentHum and currentHum.WalkSpeed ~= self.customSpeed then
-						currentHum.WalkSpeed = self.customSpeed
+			self.connections.speedLoop = RunService.Heartbeat:Connect(function(dt)
+				if not self.speedBypassRunning and not self.autoFarmAllRunning and not self.autoFarmBestRunning then
+					return
+				end
+				local currentHum = Util.getHumanoid()
+				local currentRoot = Util.getRootPart()
+				if not currentHum or not currentRoot then
+					return
+				end
+
+				if currentHum.WalkSpeed ~= self.customSpeed then
+					currentHum.WalkSpeed = self.customSpeed
+				end
+
+				-- If player is actively steering via controls (not during auto farm pathing)
+				if not self.autoFarmAllRunning and not self.autoFarmBestRunning then
+					local moveDir = currentHum.MoveDirection
+					if moveDir.Magnitude > 0 then
+						local speed = self.customSpeed
+						local velY = currentRoot.AssemblyLinearVelocity.Y
+						currentRoot.AssemblyLinearVelocity = Vector3.new(moveDir.X * speed, velY, moveDir.Z * speed)
 					end
 				end
 			end)
@@ -199,7 +241,7 @@ function Movement:logEggStolen(entry)
 	end
 
 	local cleanDisplay = entry.cleanDisplay or string.format("(%s) %s", entry.eggName or "Normal Egg", entry.petName or "Chicken")
-	local moneyText = entry.moneyText or "+$25/s"
+	local moneyText = entry.moneyText or "+$50/s"
 	local rarity = entry.rarity or "Common"
 
 	local rarityColorInt = 16777215
@@ -279,127 +321,71 @@ function Movement:findBasePosition()
 	return Vector3.new(0, 10, 0)
 end
 
--- Smooth, anti-cheat safe walking to target position using custom speed
+-- Checks if the character is currently trapped or immobilized by an animal/guard
+function Movement:isTrapped()
+	local char = LocalPlayer.Character
+	if not char then return false end
+	if char:GetAttribute("IsTrapped") == true then
+		return true
+	end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum and (hum.PlatformStand or hum.Sit or hum.Health <= 0) then
+		return true
+	end
+	return false
+end
+
+-- Safe pathing to target position using custom speed (1-1000)
 function Movement:safeWalkTo(targetPos, timeoutSeconds)
 	local hum, root = self:_context()
 	if not hum or not root then
 		return false
 	end
 
-	hum.WalkSpeed = self.customSpeed
-	local deadline = os.clock() + (timeoutSeconds or 10)
+	local speed = self.customSpeed
+	hum.WalkSpeed = speed
+
+	local deadline = os.clock() + (timeoutSeconds or 15)
 	local arrived = false
 
 	while os.clock() < deadline and (self.autoFarmAllRunning or self.autoFarmBestRunning) do
+		-- If animal traps the player, wait until the trap clears
+		if self:isTrapped() then
+			self.notify("Trapped by animal! Waiting for trap to release...", "warning")
+			while self:isTrapped() and (self.autoFarmAllRunning or self.autoFarmBestRunning) do
+				task.wait(0.5)
+			end
+			self.notify("Trap cleared! Resuming...", "info")
+			return false, "trapped"
+		end
+
 		local curHum = Util.getHumanoid()
 		local curRoot = Util.getRootPart()
 		if not curHum or not curRoot then
 			break
 		end
 
-		if curHum.WalkSpeed ~= self.customSpeed then
-			curHum.WalkSpeed = self.customSpeed
+		if curHum.WalkSpeed ~= speed then
+			curHum.WalkSpeed = speed
 		end
 
-		local dist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
-		if dist <= ARRIVE_DISTANCE then
+		local delta = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z))
+		if delta.Magnitude <= ARRIVE_DISTANCE then
 			arrived = true
 			break
 		end
 
+		-- Steer humanoid and apply safe linear velocity for speeds > 16
 		curHum:MoveTo(targetPos)
-		task.wait(0.2)
+		if speed > 20 and delta.Magnitude > 3 then
+			local velY = curRoot.AssemblyLinearVelocity.Y
+			curRoot.AssemblyLinearVelocity = Vector3.new(delta.Unit.X * speed, velY, delta.Unit.Z * speed)
+		end
+
+		task.wait(0.15)
 	end
 
 	return arrived
-end
-
-function Movement:teleportTo(position)
-	local _, root = self:_context()
-	if not root or not position then
-		return false
-	end
-	root.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
-	return true
-end
-
-function Movement:teleportToBase()
-	local basePos = self:findBasePosition()
-	if self:teleportTo(basePos) then
-		self.notify("Teleported to base / safe zone", "success")
-		return true
-	end
-	return false
-end
-
-function Movement:teleportToClosestEgg()
-	local closest = EggData.closest()
-	if not closest then
-		self.notify("No egg found in workspace", "error")
-		return false
-	end
-	if self:teleportTo(closest.position) then
-		self.notify(string.format("Teleported to %s (%.0f studs)", closest.cleanDisplay, closest.distance), "success")
-		return true
-	end
-	return false
-end
-
-function Movement:teleportToBestEgg()
-	local best = EggData.bestValue()
-	if not best then
-		self.notify("No egg found to teleport to", "error")
-		return false
-	end
-	if self:teleportTo(best.position) then
-		self.notify(string.format("Teleported to best egg (%s - %s)", best.cleanDisplay, best.moneyText), "success")
-		return true
-	end
-	return false
-end
-
-function Movement:teleportToGearShop()
-	local shop = workspace:FindFirstChild("GearShopStand", true) or workspace:FindFirstChild("Shop", true) or workspace:FindFirstChild("Stands", true)
-	if shop then
-		local pos = EggData.worldPositionOf(shop)
-		if pos and self:teleportTo(pos) then
-			self.notify("Teleported to Gear Shop", "success")
-			return true
-		end
-	end
-	self.notify("Gear shop not found in this map", "warning")
-	return false
-end
-
-function Movement:teleportToClosestPlayer()
-	local _, root = self:_context()
-	if not root then
-		return false
-	end
-
-	local closestPlayer = nil
-	local closestDist = math.huge
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= LocalPlayer and p.Character then
-			local pRoot = p.Character:FindFirstChild("HumanoidRootPart")
-			if pRoot then
-				local dist = (pRoot.Position - root.Position).Magnitude
-				if dist < closestDist then
-					closestDist = dist
-					closestPlayer = pRoot
-				end
-			end
-		end
-	end
-
-	if closestPlayer then
-		root.CFrame = closestPlayer.CFrame + Vector3.new(0, 4, 0)
-		self.notify("Teleported to nearest player", "success")
-		return true
-	end
-
-	self.notify("No other player found in server", "warning")
-	return false
 end
 
 -- Steals an egg by actively holding E (ProximityPrompt simulation for 1.2s + game remote)
@@ -417,7 +403,6 @@ function Movement:stealEgg(targetEntry)
 		prompt = EggData.getPrompt(targetEntry.instance)
 	end
 
-	-- 1. If ProximityPrompt found, hold E for full duration
 	if prompt and prompt:IsA("ProximityPrompt") then
 		local duration = prompt.HoldDuration
 		if not duration or duration <= 0 then
@@ -442,7 +427,6 @@ function Movement:stealEgg(targetEntry)
 		task.wait(1.2)
 	end
 
-	-- 2. Call EggState.CarryFieldEgg if module exists
 	if eggStateModule and eggStateModule.CarryFieldEgg and targetEntry.uid then
 		pcall(function()
 			eggStateModule.CarryFieldEgg(targetEntry.uid, targetEntry.slotKey)
@@ -452,50 +436,7 @@ function Movement:stealEgg(targetEntry)
 	return true
 end
 
--- Launch Exploit Instant TP (BK's Hub method):
--- Grabs a nearby egg first to register carry state / launch physics, then teleports directly to target egg, steals it, and glides home at Bypassed Speed!
-function Movement:instantTpToEgg(targetEntry)
-	local hum, root = self:_context()
-	if not hum or not root then
-		return false
-	end
-
-	targetEntry = targetEntry or EggData.bestValue() or EggData.closest()
-	if not targetEntry then
-		self.notify("No target egg available", "error")
-		return false
-	end
-
-	self.notify("Executing Launch Exploit TP...", "info")
-
-	-- 1. Grab launch egg nearby if available
-	local nearby = EggData.nearby(30)
-	local launchEgg = nearby[1]
-	if launchEgg and launchEgg.uid ~= targetEntry.uid then
-		self:stealEgg(launchEgg)
-		task.wait(0.15)
-	end
-
-	-- 2. Teleport straight to target egg
-	root.CFrame = CFrame.new(targetEntry.position + Vector3.new(0, 3, 0))
-	task.wait(0.2)
-
-	-- 3. Steal target egg by holding E
-	self:stealEgg(targetEntry)
-	task.wait(0.3)
-
-	self:logEggStolen(targetEntry)
-
-	-- 4. Glide home at Bypassed Speed
-	local basePos = self:findBasePosition()
-	hum.WalkSpeed = self.customSpeed
-	hum:MoveTo(basePos)
-	self.notify(string.format("Stolen %s! Gliding home at speed %d", targetEntry.cleanDisplay, self.customSpeed), "success")
-
-	return true
-end
-
--- Auto Farm (Best Eggs Only): Searches specifically for the highest money/sec egg
+-- Auto Farm (Best Eggs Only): Respects minMoneyPerSec, walks at custom speed, recovers if trapped by animal
 function Movement:toggleAutoFarmBest(enabled)
 	if not enabled then
 		self.autoFarmBestRunning = false
@@ -507,7 +448,8 @@ function Movement:toggleAutoFarmBest(enabled)
 
 	self.autoFarmAllRunning = false
 	self.autoFarmBestRunning = true
-	self.notify(string.format("Auto Farm (Best Eggs Only) started at Speed %d", self.customSpeed), "success")
+	self:neutralizeAntiCheat()
+	self.notify(string.format("Auto Farm (Best) active • Speed %d • Min: %s", self.customSpeed, EggData.formatMoney(self.minMoneyPerSec)), "success")
 
 	Util.spawn(function()
 		while self.autoFarmBestRunning do
@@ -517,31 +459,45 @@ function Movement:toggleAutoFarmBest(enabled)
 				continue
 			end
 
-			local target = EggData.bestValue()
+			-- 1. Find best egg meeting minimum money threshold
+			local target = EggData.bestValue(self.minMoneyPerSec)
 			if not target then
-				task.wait(1)
+				task.wait(1.5)
 				continue
 			end
 
-			-- 1. Walk to the best egg at custom speed
-			self:safeWalkTo(target.position, 12)
+			-- 2. Walk to egg at custom speed
+			local reached, reason = self:safeWalkTo(target.position, 14)
+			if not reached then
+				if reason == "trapped" then
+					-- Loop back and retry this egg
+					continue
+				end
+			end
 
-			-- 2. Steal egg by holding E
+			-- 3. Steal egg by holding E
 			self:stealEgg(target)
 			task.wait(0.3)
 
-			-- Log steal to webhook
-			self:logEggStolen(target)
-
-			-- 3. Return to base to deposit
+			-- 4. Walk back to base/plot to deposit
 			local basePos = self:findBasePosition()
-			self:safeWalkTo(basePos, 14)
-			task.wait(0.6)
+			local deposited, depReason = self:safeWalkTo(basePos, 16)
+			if not deposited and depReason == "trapped" then
+				-- If animal trapped player during delivery, recover, return to egg and re-grab it!
+				self.notify("Animal attacked during delivery! Returning to egg to re-grab...", "warning")
+				while self:isTrapped() and self.autoFarmBestRunning do
+					task.wait(0.5)
+				end
+				continue
+			end
+
+			self:logEggStolen(target)
+			task.wait(0.5)
 		end
 	end)
 end
 
--- Auto Farm (All Eggs): Clears eggs nearest first at custom speed
+-- Auto Farm (All Eggs Nearest-First): Respects minMoneyPerSec, walks at custom speed, recovers if trapped
 function Movement:toggleAutoFarmAll(enabled)
 	if not enabled then
 		self.autoFarmAllRunning = false
@@ -553,7 +509,8 @@ function Movement:toggleAutoFarmAll(enabled)
 
 	self.autoFarmBestRunning = false
 	self.autoFarmAllRunning = true
-	self.notify(string.format("Auto Farm (All Eggs) started at Speed %d", self.customSpeed), "success")
+	self:neutralizeAntiCheat()
+	self.notify(string.format("Auto Farm (All) active • Speed %d • Min: %s", self.customSpeed, EggData.formatMoney(self.minMoneyPerSec)), "success")
 
 	Util.spawn(function()
 		while self.autoFarmAllRunning do
@@ -563,25 +520,34 @@ function Movement:toggleAutoFarmAll(enabled)
 				continue
 			end
 
-			local target = EggData.closest()
+			local target = EggData.closest(nil, self.minMoneyPerSec)
 			if not target then
-				task.wait(1)
+				task.wait(1.5)
 				continue
 			end
 
-			-- 1. Walk to egg at custom speed
-			self:safeWalkTo(target.position, 10)
+			-- 1. Walk to egg
+			local reached, reason = self:safeWalkTo(target.position, 12)
+			if not reached and reason == "trapped" then
+				continue
+			end
 
 			-- 2. Steal egg by holding E
 			self:stealEgg(target)
 			task.wait(0.3)
 
-			-- Log steal to webhook
-			self:logEggStolen(target)
-
-			-- 3. Return to base to deposit
+			-- 3. Walk to base to deposit
 			local basePos = self:findBasePosition()
-			self:safeWalkTo(basePos, 12)
+			local deposited, depReason = self:safeWalkTo(basePos, 14)
+			if not deposited and depReason == "trapped" then
+				self.notify("Animal attacked during delivery! Returning to egg...", "warning")
+				while self:isTrapped() and self.autoFarmAllRunning do
+					task.wait(0.5)
+				end
+				continue
+			end
+
+			self:logEggStolen(target)
 			task.wait(0.5)
 		end
 	end)
@@ -767,6 +733,65 @@ function Movement:toggleAntiRagdoll(enabled)
 	end)
 end
 
+-- Anti-Knockback: Stops sudden violent physics velocity from animals and chickens
+function Movement:toggleAntiKnockback(enabled)
+	self.antiKnockbackRunning = enabled == true
+	if self.antiKnockbackRunning then
+		self.notify("Anti-Knockback enabled", "success")
+		if not self.connections.antiKnockback then
+			self.connections.antiKnockback = RunService.Stepped:Connect(function()
+				if self.antiKnockbackRunning then
+					local char = LocalPlayer.Character
+					local pRoot = char and char:FindFirstChild("HumanoidRootPart")
+					if pRoot then
+						local vel = pRoot.AssemblyLinearVelocity
+						if math.abs(vel.X) > 2000 or math.abs(vel.Z) > 2000 then
+							pRoot.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0)
+						end
+					end
+				end
+			end)
+		end
+	else
+		if self.connections.antiKnockback then
+			self.connections.antiKnockback:Disconnect()
+			self.connections.antiKnockback = nil
+		end
+		self.notify("Anti-Knockback disabled", "info")
+	end
+end
+
+-- Auto Treadmill: Trains speed automatically on plot treadmill
+function Movement:toggleAutoTreadmill(enabled)
+	if not enabled then
+		self.autoTreadmillRunning = false
+		self.notify("Auto Treadmill stopped", "info")
+		return
+	end
+	self.autoTreadmillRunning = true
+	self.notify("Auto Treadmill active - training speed", "success")
+
+	Util.spawn(function()
+		while self.autoTreadmillRunning do
+			local treadmill = workspace:FindFirstChild("Treadmill", true)
+			if treadmill then
+				local hum = Util.getHumanoid()
+				local root = Util.getRootPart()
+				local tPos = EggData.worldPositionOf(treadmill)
+				if hum and root and tPos then
+					local dist = (Vector3.new(tPos.X, 0, tPos.Z) - Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude
+					if dist > 6 then
+						hum:MoveTo(tPos)
+					else
+						hum:Move(Vector3.new(0, 0, -1), true)
+					end
+				end
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
 function Movement:stop()
 	self.autoFarmAllRunning = false
 	self.autoFarmBestRunning = false
@@ -774,6 +799,8 @@ function Movement:stop()
 	self.antiTrapRunning = false
 	self.monsterBypassRunning = false
 	self.antiRagdollRunning = false
+	self.antiKnockbackRunning = false
+	self.autoTreadmillRunning = false
 	self.speedBypassRunning = false
 	self.busy = false
 	for _, c in pairs(self.connections) do
