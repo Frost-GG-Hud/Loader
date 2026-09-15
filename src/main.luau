@@ -572,6 +572,7 @@ local keyState = {
 }
 
 local function buildKeyGui()
+    print("[Frost] Building key GUI")
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "FrostAuth"
     screenGui.ResetOnSpawn = false
@@ -701,15 +702,19 @@ local function buildKeyGui()
     info.Parent = card
 
     local function attempt()
+        print("[Frost] Attempting to unlock with current key from GitHub")
         keyState.ServerKey = fetchServerKey()
         if keyState.ServerKey == "" then
+            print("[Frost] ERROR: could not fetch key list")
             status.TextColor3 = Theme.Danger
             status.Text = "Could not load the key list from GitHub. Check your internet and retry."
             return
         end
         local entered = normalizeKey(box.Text)
         local expected = normalizeKey(keyState.ServerKey)
+        print("[Frost] entered " .. #entered .. " chars, server key " .. #expected .. " chars")
         if entered ~= "" and entered == expected then
+            print("[Frost] Key accepted. Opening hub...")
             keyState.Valid = true
             status.TextColor3 = Theme.Success
             status.Text = "Key accepted. Opening hub..."
@@ -725,6 +730,7 @@ local function buildKeyGui()
                 warn("[Frost] Hub failed: " .. tostring(hubErr))
             end
         else
+            print("[Frost] Key rejected")
             status.TextColor3 = Theme.Danger
             status.Text = "Invalid key (" .. #entered .. " chars entered). Run /key in our Discord for the current key."
         end
@@ -747,6 +753,7 @@ local function buildKeyGui()
 end
 
 local function buildHub()
+    print("[Frost] Building hub")
     local supportedGames = {
         {
             Name = "Slap Battles",
