@@ -1,4 +1,4 @@
--- Visuals: Egg ESP with rarity tags, Player ESP with info, and Trap ESP.
+-- Visuals: Egg ESP with Pet name & Money/sec, Player ESP with HP/Box, and Trap ESP.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -8,7 +8,7 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
-local TICK_INTERVAL = 0.5
+local TICK_INTERVAL = 0.45
 local EGG_ESP_NAME = "_FrostEggESP"
 local PLAYER_ESP_NAME = "_FrostPlayerESP"
 local TRAP_ESP_NAME = "_FrostTrapESP"
@@ -19,7 +19,7 @@ Esp.__index = Esp
 function Esp.new(config)
 	local self = setmetatable({}, Esp)
 	self.notify = config.notify or function() end
-	self.range = config.range or 250
+	self.range = config.range or 350
 	self.eggsEnabled = false
 	self.playersEnabled = false
 	self.trapsEnabled = false
@@ -73,6 +73,7 @@ function Esp:_tick()
 end
 
 -- ----------------------------------------------------------------- Egg ESP
+-- Displays ONLY the pet's name that's going to hatch and money per second (+$/s).
 function Esp:_tickEggs()
 	local activeSet = {}
 
@@ -82,60 +83,61 @@ function Esp:_tickEggs()
 
 		local existing = self.eggItems[inst]
 		if existing and existing.billboard and existing.billboard.Parent then
-			-- Update distance label
-			existing.distLabel.Text = string.format("%.0f studs", entry.distance)
+			existing.petLabel.Text = entry.petName
+			existing.moneyLabel.Text = entry.moneyText
 		else
-			-- Create new highlight & billboard
 			local highlight = Instance.new("Highlight")
 			highlight.Name = EGG_ESP_NAME
 			highlight.FillColor = entry.rarityColor
 			highlight.FillTransparency = 0.5
 			highlight.OutlineColor = entry.rarityColor
-			highlight.OutlineTransparency = 0
+			highlight.OutlineTransparency = 0.1
 			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 			highlight.Adornee = inst
 			highlight.Parent = inst
 
 			local billboard = Instance.new("BillboardGui")
 			billboard.Name = EGG_ESP_NAME
-			billboard.Size = UDim2.new(0, 140, 0, 36)
-			billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+			billboard.Size = UDim2.new(0, 150, 0, 36)
+			billboard.StudsOffset = Vector3.new(0, 2.8, 0)
 			billboard.AlwaysOnTop = true
 			billboard.Adornee = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
 			billboard.Parent = inst
 
-			local nameLabel = Instance.new("TextLabel")
-			nameLabel.Size = UDim2.new(1, 0, 0, 18)
-			nameLabel.BackgroundTransparency = 1
-			nameLabel.Font = Enum.Font.GothamBold
-			nameLabel.TextSize = 12
-			nameLabel.TextColor3 = entry.rarityColor
-			nameLabel.TextStrokeTransparency = 0.3
-			nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			nameLabel.Text = string.format("[%s] %s", string.upper(entry.rarity), entry.name)
-			nameLabel.Parent = billboard
+			-- Line 1: Pet's name
+			local petLabel = Instance.new("TextLabel")
+			petLabel.Size = UDim2.new(1, 0, 0, 18)
+			petLabel.BackgroundTransparency = 1
+			petLabel.Font = Enum.Font.GothamBold
+			petLabel.TextSize = 13
+			petLabel.TextColor3 = entry.rarityColor
+			petLabel.TextStrokeTransparency = 0.2
+			petLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			petLabel.Text = entry.petName
+			petLabel.Parent = billboard
 
-			local distLabel = Instance.new("TextLabel")
-			distLabel.Size = UDim2.new(1, 0, 0, 14)
-			distLabel.Position = UDim2.fromOffset(0, 18)
-			distLabel.BackgroundTransparency = 1
-			distLabel.Font = Enum.Font.Gotham
-			distLabel.TextSize = 10
-			distLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
-			distLabel.TextStrokeTransparency = 0.3
-			distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			distLabel.Text = string.format("%.0f studs", entry.distance)
-			distLabel.Parent = billboard
+			-- Line 2: Money per second
+			local moneyLabel = Instance.new("TextLabel")
+			moneyLabel.Size = UDim2.new(1, 0, 0, 14)
+			moneyLabel.Position = UDim2.fromOffset(0, 18)
+			moneyLabel.BackgroundTransparency = 1
+			moneyLabel.Font = Enum.Font.GothamSemibold
+			moneyLabel.TextSize = 11
+			moneyLabel.TextColor3 = Color3.fromRGB(80, 255, 130)
+			moneyLabel.TextStrokeTransparency = 0.2
+			moneyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			moneyLabel.Text = entry.moneyText
+			moneyLabel.Parent = billboard
 
 			self.eggItems[inst] = {
 				highlight = highlight,
 				billboard = billboard,
-				distLabel = distLabel,
+				petLabel = petLabel,
+				moneyLabel = moneyLabel,
 			}
 		end
 	end
 
-	-- Clean up stale items
 	for inst, item in pairs(self.eggItems) do
 		if not activeSet[inst] or not inst.Parent then
 			pcall(function()
@@ -356,7 +358,7 @@ function Esp:setTraps(enabled)
 end
 
 function Esp:setRange(value)
-	self.range = math.max(10, tonumber(value) or self.range)
+	self.range = math.max(20, tonumber(value) or self.range)
 end
 
 function Esp:clear()
