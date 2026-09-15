@@ -72,7 +72,7 @@ loadstring(game:HttpGet("https://YOUR-SITE.onrender.com/api/script"))()
 
 **GitHub raw:**
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/Loader.luau"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/src/Loader.luau"))()
 ```
 
 Flow: key request GUI appears first -> enter the key from `/key` -> hub opens. It reads the current key live (from the site or GitHub), so rotating a key immediately invalidates old ones.
