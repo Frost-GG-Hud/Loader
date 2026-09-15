@@ -8,7 +8,7 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
-local TICK_INTERVAL = 0.45
+local TICK_INTERVAL = 0.4
 local EGG_ESP_NAME = "_FrostEggESP"
 local PLAYER_ESP_NAME = "_FrostPlayerESP"
 local TRAP_ESP_NAME = "_FrostTrapESP"
@@ -73,84 +73,96 @@ function Esp:_tick()
 end
 
 -- ----------------------------------------------------------------- Egg ESP
--- Displays ONLY the pet's name that's going to hatch and money per second (+$/s).
+-- Displays ONLY Money/sec ABOVE and (Egg Name) Pet Name BELOW. No numbers/IDs.
 function Esp:_tickEggs()
-	local activeSet = {}
+	local activeUids = {}
 
 	for _, entry in ipairs(EggData.nearby(self.range)) do
-		local inst = entry.instance
-		activeSet[inst] = true
+		local uid = entry.uid
+		activeUids[uid] = true
 
-		local existing = self.eggItems[inst]
+		local existing = self.eggItems[uid]
 		if existing and existing.billboard and existing.billboard.Parent then
-			existing.petLabel.Text = entry.petName
 			existing.moneyLabel.Text = entry.moneyText
+			existing.nameLabel.Text = entry.cleanDisplay
+			existing.nameLabel.TextColor3 = entry.rarityColor
 		else
-			local highlight = Instance.new("Highlight")
-			highlight.Name = EGG_ESP_NAME
-			highlight.FillColor = entry.rarityColor
-			highlight.FillTransparency = 0.5
-			highlight.OutlineColor = entry.rarityColor
-			highlight.OutlineTransparency = 0.1
-			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-			highlight.Adornee = inst
-			highlight.Parent = inst
+			if existing then
+				pcall(function()
+					if existing.highlight then existing.highlight:Destroy() end
+					if existing.billboard then existing.billboard:Destroy() end
+				end)
+			end
 
-			local billboard = Instance.new("BillboardGui")
-			billboard.Name = EGG_ESP_NAME
-			billboard.Size = UDim2.new(0, 150, 0, 36)
-			billboard.StudsOffset = Vector3.new(0, 2.8, 0)
-			billboard.AlwaysOnTop = true
-			billboard.Adornee = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
-			billboard.Parent = inst
+			local targetModel = entry.model or (entry.instance:IsA("Instance") and entry.instance)
+			if targetModel and targetModel:IsA("Instance") and targetModel.Parent then
+				local highlight = Instance.new("Highlight")
+				highlight.Name = EGG_ESP_NAME
+				highlight.FillColor = entry.rarityColor
+				highlight.FillTransparency = 0.55
+				highlight.OutlineColor = entry.rarityColor
+				highlight.OutlineTransparency = 0.1
+				highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				highlight.Adornee = targetModel
+				highlight.Parent = targetModel
 
-			-- Line 1: Pet's name
-			local petLabel = Instance.new("TextLabel")
-			petLabel.Size = UDim2.new(1, 0, 0, 18)
-			petLabel.BackgroundTransparency = 1
-			petLabel.Font = Enum.Font.GothamBold
-			petLabel.TextSize = 13
-			petLabel.TextColor3 = entry.rarityColor
-			petLabel.TextStrokeTransparency = 0.2
-			petLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			petLabel.Text = entry.petName
-			petLabel.Parent = billboard
+				local billboard = Instance.new("BillboardGui")
+				billboard.Name = EGG_ESP_NAME
+				billboard.Size = UDim2.new(0, 180, 0, 36)
+				billboard.StudsOffset = Vector3.new(0, 3.2, 0)
+				billboard.AlwaysOnTop = true
+				billboard.Adornee = targetModel:IsA("BasePart") and targetModel or targetModel:FindFirstChildWhichIsA("BasePart", true)
+				billboard.Parent = targetModel
 
-			-- Line 2: Money per second
-			local moneyLabel = Instance.new("TextLabel")
-			moneyLabel.Size = UDim2.new(1, 0, 0, 14)
-			moneyLabel.Position = UDim2.fromOffset(0, 18)
-			moneyLabel.BackgroundTransparency = 1
-			moneyLabel.Font = Enum.Font.GothamSemibold
-			moneyLabel.TextSize = 11
-			moneyLabel.TextColor3 = Color3.fromRGB(80, 255, 130)
-			moneyLabel.TextStrokeTransparency = 0.2
-			moneyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			moneyLabel.Text = entry.moneyText
-			moneyLabel.Parent = billboard
+				-- Line 1 (Above): Money per second (e.g. +$250/s)
+				local moneyLabel = Instance.new("TextLabel")
+				moneyLabel.Size = UDim2.new(1, 0, 0, 15)
+				moneyLabel.Position = UDim2.fromOffset(0, 0)
+				moneyLabel.BackgroundTransparency = 1
+				moneyLabel.Font = Enum.Font.GothamBold
+				moneyLabel.TextSize = 12
+				moneyLabel.TextColor3 = Color3.fromRGB(85, 255, 130)
+				moneyLabel.TextStrokeTransparency = 0.2
+				moneyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+				moneyLabel.Text = entry.moneyText
+				moneyLabel.Parent = billboard
 
-			self.eggItems[inst] = {
-				highlight = highlight,
-				billboard = billboard,
-				petLabel = petLabel,
-				moneyLabel = moneyLabel,
-			}
+				-- Line 2 (Below): (Egg Name) Pet Name (e.g. (Normal Egg) Chicken)
+				local nameLabel = Instance.new("TextLabel")
+				nameLabel.Size = UDim2.new(1, 0, 0, 18)
+				nameLabel.Position = UDim2.fromOffset(0, 16)
+				nameLabel.BackgroundTransparency = 1
+				nameLabel.Font = Enum.Font.GothamBold
+				nameLabel.TextSize = 13
+				nameLabel.TextColor3 = entry.rarityColor
+				nameLabel.TextStrokeTransparency = 0.2
+				nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+				nameLabel.Text = entry.cleanDisplay
+				nameLabel.Parent = billboard
+
+				self.eggItems[uid] = {
+					highlight = highlight,
+					billboard = billboard,
+					moneyLabel = moneyLabel,
+					nameLabel = nameLabel,
+				}
+			end
 		end
 	end
 
-	for inst, item in pairs(self.eggItems) do
-		if not activeSet[inst] or not inst.Parent then
+	for uid, item in pairs(self.eggItems) do
+		if not activeUids[uid] then
 			pcall(function()
 				if item.highlight then item.highlight:Destroy() end
 				if item.billboard then item.billboard:Destroy() end
 			end)
-			self.eggItems[inst] = nil
+			self.eggItems[uid] = nil
 		end
 	end
 end
 
 function Esp:_clearEggEsp()
-	for inst, item in pairs(self.eggItems) do
+	for uid, item in pairs(self.eggItems) do
 		pcall(function()
 			if item.highlight then item.highlight:Destroy() end
 			if item.billboard then item.billboard:Destroy() end
