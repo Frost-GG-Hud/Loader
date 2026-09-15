@@ -1,4 +1,5 @@
 -- Movement, Automation, Traps & Guard Bypasses for Steal An Egg.
+-- Anti-cheat aware: bypasses ObbyAntiTP speed resets, supports 1-1000 speed slider, and Launch-TP exploit.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -8,10 +9,10 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
-local DEFAULT_RANGE = 250
-local ARRIVE_DISTANCE = 5
+local ARRIVE_DISTANCE = 7
 local SAFE_ZONE_NAMES = { "SafeZone", "SafeArea", "Base", "Baseplate", "SpawnArea", "PlayerPlot", "Plot" }
 
 local Movement = {}
@@ -44,20 +45,52 @@ local function fireTouch(part1, part2)
 	end
 end
 
+-- Universal executor HTTP POST helper for Discord Webhooks
+local function sendWebhook(url, payload)
+	if not url or url == "" or not string.find(url, "discord.com/api/webhooks") then
+		return false, "Invalid Discord Webhook URL"
+	end
+
+	local body = HttpService:JSONEncode(payload)
+	local headers = { ["Content-Type"] = "application/json" }
+
+	local requestFn = (syn and syn.request) or request or http_request or (http and http.request)
+	if requestFn then
+		local ok, resp = pcall(requestFn, {
+			Url = url,
+			Method = "POST",
+			Headers = headers,
+			Body = body,
+		})
+		if ok and resp and (resp.StatusCode == 200 or resp.StatusCode == 204) then
+			return true, "Webhook sent successfully"
+		end
+		return false, ok and tostring(resp and resp.StatusCode) or tostring(resp)
+	end
+
+	return false, "Executor does not support HTTP requests"
+end
+
 function Movement.new(config)
 	local self = setmetatable({
 		notify = config.notify or function() end,
-		autoFarmRunning = false,
+		autoFarmAllRunning = false,
+		autoFarmBestRunning = false,
 		autoCashRunning = false,
 		antiTrapRunning = false,
 		monsterBypassRunning = false,
 		antiRagdollRunning = false,
-		autoEquipRunning = false,
-		speedBoostRunning = false,
-		customSpeed = 24,
+		speedBypassRunning = false,
+		webhookEnabled = false,
+		webhookUrl = "",
+		customSpeed = 60,
 		busy = false,
 		connections = {},
 	}, Movement)
+
+	-- Neutralize client anti-cheat on startup
+	self:neutralizeAntiCheat()
+
 	return self
 end
 
@@ -71,8 +104,163 @@ function Movement:_context()
 	return hum, root
 end
 
+-- Neutralizes ObbyAntiTP and lagback scripts
+function Movement:neutralizeAntiCheat()
+	pcall(function()
+		workspace:SetAttribute("ClientObbyAntiTp", false)
+	end)
+
+	local function clean(parent)
+		if not parent then return end
+		for _, desc in ipairs(parent:GetDescendants()) do
+			if desc:IsA("LocalScript") and (string.find(desc.Name, "AntiTP", 1, true) or string.find(desc.Name, "AntiTp", 1, true)) then
+				desc.Disabled = true
+				pcall(function() desc:Destroy() end)
+			end
+		end
+	end
+
+	pcall(function() clean(LocalPlayer:FindFirstChild("PlayerScripts")) end)
+	pcall(function() clean(LocalPlayer.Character) end)
+end
+
+-- Speed customization (1 - 1000)
+function Movement:setSpeed(speed)
+	self.customSpeed = math.clamp(tonumber(speed) or 60, 1, 1000)
+	if self.speedBypassRunning or self.autoFarmAllRunning or self.autoFarmBestRunning then
+		local hum = Util.getHumanoid()
+		if hum then
+			hum.WalkSpeed = self.customSpeed
+		end
+	end
+end
+
+function Movement:toggleSpeedBypass(enabled)
+	self.speedBypassRunning = enabled == true
+	if self.speedBypassRunning then
+		self:neutralizeAntiCheat()
+		local hum = Util.getHumanoid()
+		if hum then
+			hum.WalkSpeed = self.customSpeed
+		end
+		self.notify(string.format("Speed Bypass enabled (Speed: %d)", self.customSpeed), "success")
+
+		-- Maintain speed connection
+		if not self.connections.speedLoop then
+			self.connections.speedLoop = RunService.Stepped:Connect(function()
+				if self.speedBypassRunning or self.autoFarmAllRunning or self.autoFarmBestRunning then
+					local currentHum = Util.getHumanoid()
+					if currentHum and currentHum.WalkSpeed ~= self.customSpeed then
+						currentHum.WalkSpeed = self.customSpeed
+					end
+				end
+			end)
+		end
+	else
+		if self.connections.speedLoop then
+			self.connections.speedLoop:Disconnect()
+			self.connections.speedLoop = nil
+		end
+		local hum = Util.getHumanoid()
+		if hum then
+			hum.WalkSpeed = 16
+		end
+		self.notify("Speed Bypass disabled (Speed: 16)", "info")
+	end
+end
+
+function Movement:setWebhook(url)
+	self.webhookUrl = tostring(url or "")
+end
+
+function Movement:toggleWebhook(enabled)
+	self.webhookEnabled = enabled == true
+	if self.webhookEnabled then
+		self.notify("Egg steal webhook logging enabled", "success")
+	else
+		self.notify("Egg steal webhook logging disabled", "info")
+	end
+end
+
+function Movement:testWebhook()
+	if not self.webhookUrl or self.webhookUrl == "" then
+		self.notify("Please paste a Discord Webhook URL first", "error")
+		return false
+	end
+
+	local payload = {
+		embeds = {
+			{
+				title = "❄️ Frost Hub • Webhook Connected",
+				description = "Test message received successfully! Stolen eggs will be logged here.",
+				color = 58879,
+				fields = {
+					{ name = "Player", value = LocalPlayer.Name, inline = true },
+					{ name = "Game", value = "Steal An Egg", inline = true },
+				},
+				footer = { text = "Frost Hub • Steal An Egg Edition" },
+				timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+			},
+		},
+	}
+
+	self.notify("Sending test webhook...", "info")
+	local ok, msg = sendWebhook(self.webhookUrl, payload)
+	if ok then
+		self.notify("Test webhook delivered!", "success")
+		return true
+	else
+		self.notify("Webhook failed: " .. tostring(msg), "error")
+		return false
+	end
+end
+
+function Movement:logEggStolen(entry)
+	if not self.webhookEnabled or not self.webhookUrl or self.webhookUrl == "" then
+		return
+	end
+
+	local petName = entry.petName or entry.name or "Egg"
+	local rarity = entry.rarity or "Common"
+	local rarityColorInt = 16777215
+	if rarity == "Divine" then
+		rarityColorInt = 64764
+	elseif rarity == "Mythic" then
+		rarityColorInt = 16725860
+	elseif rarity == "Legendary" then
+		rarityColorInt = 16758046
+	elseif rarity == "Epic" then
+		rarityColorInt = 12144895
+	elseif rarity == "Rare" then
+		rarityColorInt = 3988479
+	elseif rarity == "Uncommon" then
+		rarityColorInt = 5631864
+	end
+
+	local payload = {
+		embeds = {
+			{
+				title = "🥚 Egg Stolen & Deposited!",
+				description = string.format("**%s** stole a **%s** (%s)!", LocalPlayer.Name, petName, rarity),
+				color = rarityColorInt,
+				fields = {
+					{ name = "Pet Name", value = petName, inline = true },
+					{ name = "Money / Sec", value = entry.moneyText or "+$0/s", inline = true },
+					{ name = "Rarity", value = rarity, inline = true },
+					{ name = "Player", value = LocalPlayer.Name, inline = true },
+				},
+				footer = { text = "Frost Hub • Steal An Egg" },
+				timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+			},
+		},
+	}
+
+	Util.spawn(function()
+		sendWebhook(self.webhookUrl, payload)
+	end)
+end
+
 function Movement:findBasePosition()
-	-- Search for player's base plot
 	local plots = workspace:FindFirstChild("Plots") or workspace:FindFirstChild("PlayerPlots")
 	if plots then
 		for _, plot in ipairs(plots:GetChildren()) do
@@ -93,7 +281,6 @@ function Movement:findBasePosition()
 		end
 	end
 
-	-- Fallback to safe zones or spawn
 	for _, name in ipairs(SAFE_ZONE_NAMES) do
 		local found = workspace:FindFirstChild(name, true)
 		if found then
@@ -110,6 +297,41 @@ function Movement:findBasePosition()
 	end
 
 	return Vector3.new(0, 10, 0)
+end
+
+-- Smooth, anti-cheat safe walking to target position using custom speed
+function Movement:safeWalkTo(targetPos, timeoutSeconds)
+	local hum, root = self:_context()
+	if not hum or not root then
+		return false
+	end
+
+	hum.WalkSpeed = self.customSpeed
+	local deadline = os.clock() + (timeoutSeconds or 10)
+	local arrived = false
+
+	while os.clock() < deadline and (self.autoFarmAllRunning or self.autoFarmBestRunning) do
+		local curHum = Util.getHumanoid()
+		local curRoot = Util.getRootPart()
+		if not curHum or not curRoot then
+			break
+		end
+
+		if curHum.WalkSpeed ~= self.customSpeed then
+			curHum.WalkSpeed = self.customSpeed
+		end
+
+		local dist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
+		if dist <= ARRIVE_DISTANCE then
+			arrived = true
+			break
+		end
+
+		curHum:MoveTo(targetPos)
+		task.wait(0.2)
+	end
+
+	return arrived
 end
 
 function Movement:teleportTo(position)
@@ -137,7 +359,7 @@ function Movement:teleportToClosestEgg()
 		return false
 	end
 	if self:teleportTo(closest.position) then
-		self.notify(string.format("Teleported to %s (%.0f studs)", closest.rarity, closest.distance), "success")
+		self.notify(string.format("Teleported to %s (%.0f studs)", closest.petName, closest.distance), "success")
 		return true
 	end
 	return false
@@ -150,7 +372,7 @@ function Movement:teleportToBestEgg()
 		return false
 	end
 	if self:teleportTo(best.position) then
-		self.notify(string.format("Teleported to best egg (%s)", best.rarity), "success")
+		self.notify(string.format("Teleported to best egg (%s - %s)", best.petName, best.moneyText), "success")
 		return true
 	end
 	return false
@@ -200,7 +422,7 @@ function Movement:teleportToClosestPlayer()
 	return false
 end
 
--- Grabs an egg instance (fires prompt, touch, or pulls egg part)
+-- Grabs an egg instance (fires prompt or touch)
 function Movement:grabEgg(targetEntry)
 	local _, root = self:_context()
 	if not root or not targetEntry then
@@ -212,13 +434,11 @@ function Movement:grabEgg(targetEntry)
 		return false
 	end
 
-	-- 1. Check for ProximityPrompt
 	local prompt = EggData.getPrompt(inst)
 	if prompt then
 		firePrompt(prompt)
 	end
 
-	-- 2. Check for TouchTransmitter or egg base part
 	local eggPart = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
 	if eggPart then
 		fireTouch(root, eggPart)
@@ -233,106 +453,145 @@ function Movement:grabEgg(targetEntry)
 	return true
 end
 
--- Instant Steal: Teleport right to egg, fire grab, and return
-function Movement:instantStealNearest()
-	local _, root = self:_context()
-	if not root then
+-- Launch Exploit Instant TP (BK's Hub method):
+-- Grabs a nearby egg first to register carry state / launch physics, then teleports directly to target egg, grabs it, and glides home at Bypassed Speed!
+function Movement:instantTpToEgg(targetEntry)
+	local hum, root = self:_context()
+	if not hum or not root then
 		return false
 	end
 
-	local target = EggData.closest()
-	if not target then
-		self.notify("No egg available to steal", "error")
+	targetEntry = targetEntry or EggData.bestValue() or EggData.closest()
+	if not targetEntry then
+		self.notify("No target egg available", "error")
 		return false
 	end
 
-	local prevPos = root.Position
-	root.CFrame = CFrame.new(target.position + Vector3.new(0, 2, 0))
-	task.wait(0.15)
-	self:grabEgg(target)
+	self.notify("Executing Launch Exploit TP...", "info")
+
+	-- 1. Grab launch egg nearby if available
+	local nearby = EggData.nearby(30)
+	local launchEgg = nearby[1]
+	if launchEgg and launchEgg.instance ~= targetEntry.instance then
+		self:grabEgg(launchEgg)
+		task.wait(0.1)
+	end
+
+	-- 2. Teleport straight to target egg
+	root.CFrame = CFrame.new(targetEntry.position + Vector3.new(0, 3, 0))
 	task.wait(0.2)
-	self:grabEgg(target)
-	self.notify(string.format("Grabbed %s!", target.name), "success")
+
+	-- 3. Grab target egg
+	self:grabEgg(targetEntry)
+	task.wait(0.25)
+	self:grabEgg(targetEntry)
+
+	self:logEggStolen(targetEntry)
+
+	-- 4. Glide home at Bypassed Speed
+	local basePos = self:findBasePosition()
+	hum.WalkSpeed = self.customSpeed
+	hum:MoveTo(basePos)
+	self.notify(string.format("Stolen %s! Gliding home at speed %d", targetEntry.petName, self.customSpeed), "success")
+
 	return true
 end
 
--- Auto Farm: Runs loop to continuously find eggs, grab them, deposit them
-function Movement:toggleAutoFarm(enabled, instantMode)
+-- Auto Farm (Best Eggs Only): Searches specifically for the highest money/sec and rarity egg
+function Movement:toggleAutoFarmBest(enabled)
 	if not enabled then
-		self.autoFarmRunning = false
-		self.notify("Auto Farm stopped", "info")
+		self.autoFarmBestRunning = false
+		local hum = Util.getHumanoid()
+		if hum then hum.WalkSpeed = 16 end
+		self.notify("Auto Farm (Best) stopped", "info")
 		return
 	end
 
-	if self.autoFarmRunning then
-		return
-	end
-
-	self.autoFarmRunning = true
-	self.notify("Auto Farm started - collecting and depositing eggs", "success")
+	self.autoFarmAllRunning = false
+	self.autoFarmBestRunning = true
+	self.notify(string.format("Auto Farm (Best Eggs Only) started at Speed %d", self.customSpeed), "success")
 
 	Util.spawn(function()
-		while self.autoFarmRunning do
+		while self.autoFarmBestRunning do
 			local hum, root = self:_context()
 			if not hum or not root then
 				task.wait(1)
 				continue
 			end
 
-			-- 1. Find best or nearest egg
-			local target = EggData.bestValue() or EggData.closest()
+			local target = EggData.bestValue()
 			if not target then
-				task.wait(0.75)
+				task.wait(1)
 				continue
 			end
 
+			-- 1. Walk to the best egg at custom speed
+			self:safeWalkTo(target.position, 12)
+
+			-- 2. Grab egg
+			self:grabEgg(target)
+			task.wait(0.3)
+			self:grabEgg(target)
+
+			-- Log steal to webhook
+			self:logEggStolen(target)
+
+			-- 3. Return to base to deposit
 			local basePos = self:findBasePosition()
+			self:safeWalkTo(basePos, 14)
+			task.wait(0.6)
+		end
+	end)
+end
 
-			-- 2. Travel to egg
-			if instantMode then
-				root.CFrame = CFrame.new(target.position + Vector3.new(0, 3, 0))
-				task.wait(0.2)
-			else
-				local dist = (target.position - root.Position).Magnitude
-				if dist > 8 then
-					hum:MoveTo(target.position)
-					local deadline = os.clock() + 4
-					while os.clock() < deadline and self.autoFarmRunning do
-						local curRoot = Util.getRootPart()
-						if not curRoot or (target.position - curRoot.Position).Magnitude <= ARRIVE_DISTANCE then
-							break
-						end
-						task.wait(0.2)
-					end
-				end
+-- Auto Farm (All Eggs): Clears eggs nearest first at custom speed
+function Movement:toggleAutoFarmAll(enabled)
+	if not enabled then
+		self.autoFarmAllRunning = false
+		local hum = Util.getHumanoid()
+		if hum then hum.WalkSpeed = 16 end
+		self.notify("Auto Farm (All) stopped", "info")
+		return
+	end
+
+	self.autoFarmBestRunning = false
+	self.autoFarmAllRunning = true
+	self.notify(string.format("Auto Farm (All Eggs) started at Speed %d", self.customSpeed), "success")
+
+	Util.spawn(function()
+		while self.autoFarmAllRunning do
+			local hum, root = self:_context()
+			if not hum or not root then
+				task.wait(1)
+				continue
 			end
 
-			-- 3. Grab egg
-			self:grabEgg(target)
-			task.wait(0.25)
-			self:grabEgg(target)
-
-			-- 4. Return to base/pen to deposit
-			if instantMode then
-				root.CFrame = CFrame.new(basePos)
-			else
-				hum:MoveTo(basePos)
-				local deadline = os.clock() + 6
-				while os.clock() < deadline and self.autoFarmRunning do
-					local curRoot = Util.getRootPart()
-					if not curRoot or (basePos - curRoot.Position).Magnitude <= ARRIVE_DISTANCE then
-						break
-					end
-					task.wait(0.2)
-				end
+			local target = EggData.closest()
+			if not target then
+				task.wait(1)
+				continue
 			end
 
+			-- 1. Walk to egg at custom speed
+			self:safeWalkTo(target.position, 10)
+
+			-- 2. Grab egg
+			self:grabEgg(target)
+			task.wait(0.3)
+			self:grabEgg(target)
+
+			-- Log steal to webhook
+			self:logEggStolen(target)
+
+			-- 3. Return to base to deposit
+			local basePos = self:findBasePosition()
+			self:safeWalkTo(basePos, 12)
 			task.wait(0.5)
 		end
 	end)
 end
 
--- Auto Collect Cash / Offline Earnings
+-- Auto Collect Offline Cash
 function Movement:toggleAutoCash(enabled)
 	if not enabled then
 		self.autoCashRunning = false
@@ -347,13 +606,13 @@ function Movement:toggleAutoCash(enabled)
 		while self.autoCashRunning do
 			pcall(function()
 				-- Call game remote if exists
-				local remotes = ReplicatedStorage:FindFirstChild("Shared") and ReplicatedStorage.Shared:FindFirstChild("Remotes")
-					or ReplicatedStorage:FindFirstChild("Remotes")
-				if remotes and remotes:FindFirstChild("AwayEarnings") and remotes.AwayEarnings:FindFirstChild("AskCollect") then
-					remotes.AwayEarnings.AskCollect:InvokeServer()
+				local ok, Remotes = pcall(function()
+					return require(ReplicatedStorage.Shared.Remotes)
+				end)
+				if ok and Remotes and Remotes.AwayEarnings and Remotes.AwayEarnings.AskCollect then
+					Remotes.AwayEarnings.AskCollect:InvokeServer()
 				end
 
-				-- Also scan for TouchTransmitter on cash stands
 				local root = Util.getRootPart()
 				if root then
 					for _, part in ipairs(workspace:GetDescendants()) do
@@ -363,30 +622,49 @@ function Movement:toggleAutoCash(enabled)
 					end
 				end
 			end)
-			task.wait(5)
+			task.wait(6)
 		end
 	end)
 end
 
--- Auto Equip Best Pets for speed & multipliers
+-- Auto Equip Best Pets: Calls require(ReplicatedStorage.Shared.Remotes).Haul.WearBest:InvokeServer()
 function Movement:equipBestPets()
-	local ok, err = pcall(function()
-		local remotes = ReplicatedStorage:FindFirstChild("Shared") and ReplicatedStorage.Shared:FindFirstChild("Remotes")
-			or ReplicatedStorage:FindFirstChild("Remotes")
-		if remotes and remotes:FindFirstChild("Haul") and remotes.Haul:FindFirstChild("WearBest") then
-			remotes.Haul.WearBest:InvokeServer()
-			self.notify("Equipped best pets!", "success")
-			return true
+	local success = false
+
+	-- 1. Try require(ReplicatedStorage.Shared.Remotes)
+	pcall(function()
+		local Remotes = require(ReplicatedStorage.Shared.Remotes)
+		if Remotes and Remotes.Haul and Remotes.Haul.WearBest then
+			Remotes.Haul.WearBest:InvokeServer()
+			success = true
 		end
-		self.notify("Pet remote not available", "warning")
-		return false
 	end)
-	if not ok then
-		self.notify("Could not equip pets: " .. tostring(err), "error")
+
+	-- 2. Try direct instance search in ReplicatedStorage
+	if not success then
+		pcall(function()
+			for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+				if (desc:IsA("RemoteFunction") or desc:IsA("RemoteEvent")) and string.find(desc.Name, "WearBest", 1, true) then
+					if desc:IsA("RemoteFunction") then
+						desc:InvokeServer()
+					else
+						desc:FireServer()
+					end
+					success = true
+					break
+				end
+			end
+		end)
+	end
+
+	if success then
+		self.notify("Equipped best pets successfully!", "success")
+	else
+		self.notify("WearBest remote executed or not available in this build", "info")
 	end
 end
 
--- Anti-Trap: Disables collision and touch detection on all traps
+-- Anti-Trap: Disables collision, touch detection, and touch transmitters on all traps
 function Movement:toggleAntiTrap(enabled)
 	if not enabled then
 		self.antiTrapRunning = false
@@ -395,7 +673,7 @@ function Movement:toggleAntiTrap(enabled)
 	end
 
 	self.antiTrapRunning = true
-	self.notify("Anti-Trap enabled - traps bypassed", "success")
+	self.notify("Anti-Trap enabled - all traps neutralized", "success")
 
 	Util.spawn(function()
 		while self.antiTrapRunning do
@@ -404,11 +682,15 @@ function Movement:toggleAntiTrap(enabled)
 					if trap:IsA("BasePart") then
 						trap.CanCollide = false
 						trap.CanTouch = false
+						local tt = trap:FindFirstChildWhichIsA("TouchTransmitter")
+						if tt then pcall(function() tt:Destroy() end) end
 					elseif trap:IsA("Model") then
 						for _, part in ipairs(trap:GetDescendants()) do
 							if part:IsA("BasePart") then
 								part.CanCollide = false
 								part.CanTouch = false
+								local tt = part:FindFirstChildWhichIsA("TouchTransmitter")
+								if tt then pcall(function() tt:Destroy() end) end
 							end
 						end
 					end
@@ -417,6 +699,8 @@ function Movement:toggleAntiTrap(enabled)
 					if string.find(string.lower(inst.Name), "trap", 1, true) and inst:IsA("BasePart") then
 						inst.CanCollide = false
 						inst.CanTouch = false
+						local tt = inst:FindFirstChildWhichIsA("TouchTransmitter")
+						if tt then pcall(function() tt:Destroy() end) end
 					end
 				end
 			end)
@@ -425,7 +709,7 @@ function Movement:toggleAntiTrap(enabled)
 	end)
 end
 
--- Monster / Guard Bypass: Disables enemy collision and hitboxes
+-- Monster / Guard Bypass: Disables enemy collision, hitboxes, and freezes them
 function Movement:toggleMonsterBypass(enabled)
 	if not enabled then
 		self.monsterBypassRunning = false
@@ -434,7 +718,7 @@ function Movement:toggleMonsterBypass(enabled)
 	end
 
 	self.monsterBypassRunning = true
-	self.notify("Monster bypass enabled - guards cannot hit you", "success")
+	self.notify("Monster bypass enabled - guards frozen & neutralized", "success")
 
 	Util.spawn(function()
 		while self.monsterBypassRunning do
@@ -443,10 +727,16 @@ function Movement:toggleMonsterBypass(enabled)
 					if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") and model ~= Util.getCharacter() then
 						local name = string.lower(model.Name)
 						if string.find(name, "guard") or string.find(name, "monster") or string.find(name, "enemy") or string.find(name, "npc") then
+							local enemyHum = model:FindFirstChildOfClass("Humanoid")
+							if enemyHum then
+								enemyHum.WalkSpeed = 0
+							end
 							for _, part in ipairs(model:GetDescendants()) do
 								if part:IsA("BasePart") then
 									part.CanCollide = false
 									part.CanTouch = false
+									local tt = part:FindFirstChildWhichIsA("TouchTransmitter")
+									if tt then pcall(function() tt:Destroy() end) end
 								end
 							end
 						end
@@ -476,21 +766,24 @@ function Movement:toggleAntiRagdoll(enabled)
 				pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum.PlatformStand = false
 				end)
 			end
-			task.wait(1)
+			task.wait(0.75)
 		end
 	end)
 end
 
 function Movement:stop()
-	self.autoFarmRunning = false
+	self.autoFarmAllRunning = false
+	self.autoFarmBestRunning = false
 	self.autoCashRunning = false
 	self.antiTrapRunning = false
 	self.monsterBypassRunning = false
 	self.antiRagdollRunning = false
+	self.speedBypassRunning = false
 	self.busy = false
-	for _, c in ipairs(self.connections) do
+	for _, c in pairs(self.connections) do
 		pcall(function()
 			c:Disconnect()
 		end)
