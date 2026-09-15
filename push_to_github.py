@@ -41,6 +41,7 @@ FILES = [
     "src/ui/widgets/Label.luau",
     "src/ui/widgets/Section.luau",
     "src/ui/widgets/Slider.luau",
+    "src/ui/widgets/TextInput.luau",
     "src/ui/widgets/Toggle.luau",
     "README.md",
     ".env.example",
