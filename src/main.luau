@@ -937,17 +937,192 @@ function buildHub()
             Name = "Steal An Egg",
             PlaceId = 107778070777162,
             TabLabel = "Steal An Egg",
-            Load = function(hub, tab)
-                tab:AddButton("Teleport to Base", function()
-                    local char = getCharacter()
-                    local root = getRootPart(char)
-                    local base = workspace:FindFirstChild("Base") or workspace:FindFirstChild("Baseplate")
-                    if base and root then
-                        root.CFrame = base.CFrame + Vector3.new(0, 5, 0)
-                    end
-                end, true)
-                tab:AddLabel("Add your Steal An Egg features here.", true)
-            end,
+             Load = function(hub, tab)
+                 -- Egg ESP: Highlight all eggs through walls
+                 local espConnections = {}
+                 tab:AddToggle("Egg ESP", false, function(on)
+                     if on then
+                         local function updateESP()
+                             if not on then return end
+                             for _, obj in ipairs(workspace:GetDescendants()) do
+                                 if obj.Name:lower():find("egg") or obj:FindFirstChild("EggType") or obj:FindFirstChild("Rarity") then
+                                     if not obj:FindFirstChild("_FrostESP") then
+                                         local highlight = Instance.new("Highlight")
+                                         highlight.FillColor = Color3.fromRGB(255, 204, 0)
+                                         highlight.FillTransparency = 0.5
+                                         highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                                         highlight.OutlineTransparency = 0
+                                         highlight.Adornee = obj
+                                         highlight.Parent = obj
+                                         highlight.Name = "_FrostESP"
+                                     end
+                                 end
+                             end
+                         end
+                         updateESP()
+                         espConnections.esp = RunService.Heartbeat:Connect(updateESP)
+                     else
+                         if espConnections.esp then espConnections.esp:Disconnect() end
+                         for _, obj in ipairs(workspace:GetDescendants()) do
+                             local h = obj:FindFirstChild("_FrostESP")
+                             if h then h:Destroy() end
+                         end
+                     end
+                 end)
+
+                 -- Player ESP: See other players through walls
+                 local playerEspConnections = {}
+                 tab:AddToggle("Player ESP", false, function(on)
+                     if on then
+                         local function updatePlayerESP()
+                             if not on then return end
+                             for _, player in ipairs(Players:GetPlayers()) do
+                                 if player ~= LocalPlayer and player.Character then
+                                     local char = player.Character
+                                     local root = char:FindFirstChild("HumanoidRootPart")
+                                     if root and not root:FindFirstChild("_FrostPlayerESP") then
+                                         local box = Instance.new("BoxHandleAdornment")
+                                         box.Size = root.Size + Vector3.new(2, 2, 2)
+                                         box.Color = player.TeamColor and player.TeamColor.Color or Color3.fromRGB(255, 0, 0)
+                                         box.Transparency = 0.5
+                                         box.Adornee = root
+                                         box.Name = "_FrostPlayerESP"
+                                         box.Parent = root
+                                     end
+                                 end
+                             end
+                         end
+                         updatePlayerESP()
+                         playerEspConnections.update = RunService.Heartbeat:Connect(updatePlayerESP)
+                     else
+                         if playerEspConnections.update then playerEspConnections.update:Disconnect() end
+                         for _, player in ipairs(Players:GetPlayers()) do
+                             if player.Character then
+                                 local root = player.Character:FindFirstChild("HumanoidRootPart")
+                                 if root then
+                                     local box = root:FindFirstChild("_FrostPlayerESP")
+                                     if box then box:Destroy() end
+                                 end
+                             end
+                         end
+                     end
+                 end)
+
+                 -- Best Egg: Auto collect the rarest eggs
+                 local bestEggActive = false
+                 local bestEggConn = nil
+                 tab:AddToggle("Best Egg Auto-Collect", false, function(on)
+                     bestEggActive = on
+                     if on then
+                         bestEggConn = RunService.Heartbeat:Connect(function()
+                             if not bestEggActive then return end
+                             local char = getCharacter()
+                             local root = getRootPart(char)
+                             if not root then return end
+                             local humanoid = getHumanoid(char)
+                             if not humanoid then return end
+
+                             local closestEgg = nil
+                             local closestDist = math.huge
+                             for _, obj in ipairs(workspace:GetDescendants()) do
+                                 if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
+                                     local dist = (obj.Position - root.Position).Magnitude
+                                     if dist < closestDist and dist < 50 then
+                                         closestDist = dist
+                                         closestEgg = obj
+                                     end
+                                 end
+                             end
+                             if closestEgg and humanoid and humanoid.MoveDirection.Magnitude > 0 then
+                                 root.CFrame = CFrame.lookAt(root.Position, closestEgg.Position) * CFrame.new(0, 0, -5)
+                             end
+                         end)
+                     else
+                         if bestEggConn then bestEggConn:Disconnect() end
+                     end
+                 end)
+
+                 -- Auto Farm: Auto collect all nearby eggs
+                 local autoFarmActive = false
+                 local autoFarmConn = nil
+                 tab:AddToggle("Auto Farm Eggs", false, function(on)
+                     autoFarmActive = on
+                     if on then
+                         autoFarmConn = RunService.Heartbeat:Connect(function()
+                             if not autoFarmActive then return end
+                             local char = getCharacter()
+                             local root = getRootPart(char)
+                             if not root then return end
+                             local humanoid = getHumanoid(char)
+                             if not humanoid then return end
+
+                             for _, obj in ipairs(workspace:GetDescendants()) do
+                                 if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
+                                     local dist = (obj.Position - root.Position).Magnitude
+                                     if dist < 30 then
+                                         root.CFrame = CFrame.lookAt(root.Position, obj.Position) * CFrame.new(0, 0, -5)
+                                     end
+                                 end
+                             end
+                         end)
+                     else
+                         if autoFarmConn then autoFarmConn:Disconnect() end
+                     end
+                 end)
+
+                 -- ESP Distance Filter
+                 local espDistance = 50
+                 tab:AddSlider("ESP Draw Distance", 10, 200, 50, function(val)
+                     espDistance = val
+                 end)
+
+                 -- Teleport to Egg
+                 tab:AddButton("Teleport to Closest Egg", function()
+                     local char = getCharacter()
+                     local root = getRootPart(char)
+                     if not root then return end
+                     local closestEgg = nil
+                     local closestDist = math.huge
+                     for _, obj in ipairs(workspace:GetDescendants()) do
+                         if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
+                             local dist = (obj.Position - root.Position).Magnitude
+                             if dist < closestDist then
+                                 closestDist = dist
+                                 closestEgg = obj
+                             end
+                         end
+                     end
+                     if closestEgg and root then
+                         root.CFrame = closestEgg.CFrame + Vector3.new(0, 5, 0)
+                     end
+                 end, true)
+
+                 -- Teleport to Player
+                 tab:AddButton("Teleport to Closest Player", function()
+                     local char = getCharacter()
+                     local root = getRootPart(char)
+                     if not root then return end
+                     local closest = nil
+                     local closestDist = math.huge
+                     for _, player in ipairs(Players:GetPlayers()) do
+                         if player ~= LocalPlayer and player.Character then
+                             local pr = player.Character:FindFirstChild("HumanoidRootPart")
+                             if pr then
+                                 local dist = (pr.Position - root.Position).Magnitude
+                                 if dist < closestDist then
+                                     closestDist = dist
+                                     closest = pr
+                                 end
+                             end
+                         end
+                     end
+                     if closest and root then
+                         root.CFrame = closest.CFrame + Vector3.new(0, 5, 0)
+                     end
+                 end, true)
+
+                 tab:AddLabel("Features: Egg ESP, Player ESP, Best Egg Auto, Auto Farm, Teleport to Egg/Player.", true)
+             end,
         },
     }
 
