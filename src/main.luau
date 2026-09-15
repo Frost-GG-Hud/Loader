@@ -1,12 +1,6 @@
 -- Frost hub entry point.
---
--- This file used to be a ~1000 line monolith containing the window library, the
--- widgets, the key gate and every game feature. It is now a thin orchestrator:
--- it builds the window, registers the tabs, and hands each feature module the
--- hub plus a cleanup list. Everything else lives in src/core, src/ui and
--- src/features.
---
--- It is started by Loader.luau, which passes the shared context as `...`.
+-- Builds the window, registers the tabs, and wires up feature modules.
+-- Started by Loader.luau, which passes the shared context as `...`.
 
 local ctx = ...
 if type(ctx) ~= "table" or type(ctx.require) ~= "function" then
@@ -30,65 +24,62 @@ end
 local function buildHub()
 	local window = Window.new({
 		Name = "FrostGui",
-		Title = "Frost",
-		Subtitle = "Drag the title bar to move - " .. keyLabel(Config.ToggleKey) .. " to show/hide",
-		Size = Vector2.new(560, 460),
+		Title = "FROST HUB",
+		Subtitle = "Steal An Egg • " .. keyLabel(Config.ToggleKey) .. " or click ❄️",
+		Size = Vector2.new(580, 440),
 		ToggleKey = Config.ToggleKey,
 	})
 
-	-- Anything the feature modules start (fly, noclip, ESP loops, walkers) is
-	-- registered here and torn down with the window.
 	local cleanup = Util.newCleanupList()
 	window:onDestroy(function()
 		cleanup.run()
 	end)
 
-	local universalTab = window:addTab("Universal")
+	-- 1. Steal An Egg Tab (Primary & Loaded Immediately)
+	local eggTab = window:addTab("🥚 Steal An Egg")
+	StealAnEgg(window, eggTab, cleanup)
+
+	-- 2. Universal Tab (Movement, Fly, Visuals, Server)
+	local universalTab = window:addTab("⚡ Universal")
 	Universal(window, universalTab, cleanup)
 
-	local gameTab = window:addTab("Steal An Egg")
-	gameTab:AddLabel("Open the Information tab and press 'Load Steal An Egg Features'.", true)
-
-	local informationTab = window:addTab("Information")
-	informationTab:AddLabel("Pick a game to load its feature set.", true)
-	informationTab:AddLabel("Current PlaceId: " .. tostring(game.PlaceId), true)
-
+	-- 3. Info & Settings Tab
+	local infoTab = window:addTab("ℹ️ Info")
+	infoTab:AddSection("Game Information")
+	infoTab:AddLabel("Game: Steal An Egg (ID: " .. tostring(game.PlaceId) .. ")", false)
 	if game.PlaceId == STEAL_AN_EGG_PLACE_ID then
-		informationTab:AddLabel("Steal An Egg detected - its features are ready to load.", true)
+		infoTab:AddLabel("Status: Verified PlaceId match", false)
 	else
-		informationTab:AddLabel("No dedicated feature set matches this PlaceId; the game tab loads Steal An Egg anyway.", true)
+		infoTab:AddLabel("Status: Running in custom / alternate place", true)
 	end
 
-	informationTab:AddButton("Load Steal An Egg Features", function()
-		-- Clear first: this is what stops the previous ESP loops and walkers.
-		gameTab:Clear()
-		StealAnEgg(window, gameTab, cleanup)
-		window:select("Steal An Egg")
+	infoTab:AddSection("Shortcuts & Controls")
+	infoTab:AddLabel("• Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating ❄️ icon to hide/show.", false)
+	infoTab:AddLabel("• Drag the top title bar to move the window.", false)
+	infoTab:AddLabel("• Drag bottom-right corner to resize.", false)
 
-		if game.PlaceId == STEAL_AN_EGG_PLACE_ID then
-			window:notify("Steal An Egg features loaded", "success")
+	infoTab:AddSection("Community & Support")
+	infoTab:AddButton("Copy Discord Invite Link", function()
+		local setclip = setclipboard or toclipboard or writeclipboard
+		if setclip then
+			setclip(Config.DiscordInvite)
+			window:notify("Discord invite copied to clipboard!", "success")
 		else
-			window:notify("Loaded Steal An Egg features (untested in this game)", "warning")
+			window:notify("Discord: " .. Config.DiscordInvite, "info")
 		end
 	end)
 
-	informationTab:AddButton("Reset Game Tab", function()
-		gameTab:Clear()
-		gameTab:AddLabel("Open the Information tab and press 'Load Steal An Egg Features'.", true)
-		window:select("Universal")
-		window:notify("Game features unloaded", "info")
+	infoTab:AddButton("Close Frost Hub", function()
+		window:destroy()
 	end, true)
 
-	informationTab:AddLabel("Universal features work everywhere. Game features only make sense in the game they were written for.", true)
-
-	window:select("Information")
-	window:notify("Frost ready. Drag the title bar to move the window.", "success")
+	window:select("🥚 Steal An Egg")
+	window:notify("Frost Hub loaded! Steal An Egg features ready.", "success")
 
 	return window
 end
 
 local function start()
-	-- Raise the script identity first so gethui/ScreenGui use is not restricted.
 	pcall(function()
 		if setidentity then
 			setidentity(8)
