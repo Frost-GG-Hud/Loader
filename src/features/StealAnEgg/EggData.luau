@@ -1,24 +1,13 @@
--- Egg discovery, metadata reading, and spatial sorting.
--- Supports standard workspace models, __OBJECTS, AreaEggSlotsClient, and custom egg folders.
+-- Egg discovery, metadata reading, Pet name resolution, and Money/sec extraction.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
 
-local CACHE_TTL = 0.4
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
 
-local VALUE_ATTRIBUTES = {
-	"Income",
-	"Profit",
-	"MoneyPerSecond",
-	"IncomePerSecond",
-	"CashPerSecond",
-	"Value",
-	"Price",
-	"Worth",
-	"RarityTier",
-}
-local VALUE_OBJECT_HINTS = { "income", "profit", "value", "worth", "cash", "rarity" }
-local OWNER_ATTRIBUTES = { "Owner", "OwnerId", "OwnerName", "PlotOwner", "ClaimedBy", "Claimed" }
+local CACHE_TTL = 0.35
 
 local RARITY_COLORS = {
 	Common = Color3.fromRGB(180, 190, 205),
@@ -33,26 +22,49 @@ local RARITY_COLORS = {
 
 local EggData = {}
 local cache = { instances = {}, stampedAt = -math.huge }
+local assetDirectory = nil
 
-function EggData.nameMatches(instance)
-	local lower = string.lower(instance.Name)
-	return string.find(lower, "egg", 1, true) ~= nil
+-- Attempt to load Assets directory from ReplicatedStorage
+pcall(function()
+	local assetsModule = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Assets")
+	if assetsModule and assetsModule:IsA("ModuleScript") then
+		local loaded = require(assetsModule)
+		if type(loaded) == "table" then
+			assetDirectory = loaded.Directory or loaded
+		end
+	end
+end)
+
+function EggData.formatMoney(amount)
+	if not amount or type(amount) ~= "number" or amount <= 0 then
+		return "+$0/s"
+	end
+	if amount >= 1e9 then
+		return string.format("+$%.1fB/s", amount / 1e9)
+	elseif amount >= 1e6 then
+		return string.format("+$%.1fM/s", amount / 1e6)
+	elseif amount >= 1e3 then
+		return string.format("+$%.1fK/s", amount / 1e3)
+	else
+		return string.format("+$%.0f/s", amount)
+	end
 end
 
 function EggData.isEgg(instance)
 	if not (instance:IsA("BasePart") or instance:IsA("Model")) then
 		return false
 	end
-	if EggData.nameMatches(instance) then
+	if instance.Parent and instance.Parent.Name == "AreaEggSlotsClient" then
+		return true
+	end
+	local lower = string.lower(instance.Name)
+	if string.find(lower, "egg", 1, true) ~= nil then
 		return true
 	end
 	if instance:FindFirstChild("EggType") ~= nil or instance:GetAttribute("EggType") ~= nil then
 		return true
 	end
 	if instance:FindFirstChild("EggPoint", true) ~= nil then
-		return true
-	end
-	if instance.Parent and instance.Parent.Name == "AreaEggSlotsClient" then
 		return true
 	end
 	return false
@@ -83,75 +95,107 @@ function EggData.worldPositionOf(instance)
 	return nil
 end
 
-function EggData.valueOf(instance)
-	for _, attributeName in ipairs(VALUE_ATTRIBUTES) do
-		local value = instance:GetAttribute(attributeName)
-		if type(value) == "number" then
-			return value
+-- Extracts the Pet Name that will hatch and the Money Per Second
+function EggData.getPetInfo(instance)
+	local petName = nil
+	local moneyPerSec = 0
+	local rarity = "Common"
+
+	-- 1. Try category key from attributes or children
+	local category = instance:GetAttribute("AssetCategory")
+		or instance:GetAttribute("Category")
+		or instance:GetAttribute("EggType")
+		or instance:GetAttribute("PetName")
+
+	if not category then
+		local catVal = instance:FindFirstChild("Category") or instance:FindFirstChild("EggType") or instance:FindFirstChild("PetName")
+		if catVal and catVal:IsA("StringValue") then
+			category = catVal.Value
 		end
 	end
 
-	for _, child in ipairs(instance:GetChildren()) do
-		if child:IsA("NumberValue") or child:IsA("IntValue") then
-			local name = string.lower(child.Name)
-			for _, hint in ipairs(VALUE_OBJECT_HINTS) do
-				if string.find(name, hint, 1, true) then
-					return child.Value
-				end
+	-- 2. Lookup in Assets directory if available
+	if category and assetDirectory and assetDirectory[category] then
+		local entry = assetDirectory[category]
+		if entry.Egg and entry.Egg.DisplayName then
+			petName = entry.Egg.DisplayName
+		elseif entry.DisplayName then
+			petName = entry.DisplayName
+		end
+
+		if entry.Rarity then
+			rarity = entry.Rarity.DisplayName or entry.Rarity._id or rarity
+			if type(entry.Rarity.DefaultRarityValue) == "number" then
+				moneyPerSec = entry.Rarity.DefaultRarityValue
 			end
 		end
-	end
-	return nil
-end
 
-function EggData.rarityOf(instance)
-	local rarityAttr = instance:GetAttribute("Rarity") or instance:GetAttribute("RarityName") or instance:GetAttribute("Tier")
-	if type(rarityAttr) == "string" and rarityAttr ~= "" then
-		for rarityName, color in pairs(RARITY_COLORS) do
-			if string.find(string.lower(rarityAttr), string.lower(rarityName), 1, true) then
-				return rarityName, color
-			end
-		end
-		return rarityAttr, Color3.fromRGB(255, 215, 0)
-	end
-
-	local val = EggData.valueOf(instance)
-	if val then
-		if val >= 1000000 then
-			return "Divine", RARITY_COLORS.Divine
-		elseif val >= 100000 then
-			return "Mythic", RARITY_COLORS.Mythic
-		elseif val >= 10000 then
-			return "Legendary", RARITY_COLORS.Legendary
-		elseif val >= 2500 then
-			return "Epic", RARITY_COLORS.Epic
-		elseif val >= 500 then
-			return "Rare", RARITY_COLORS.Rare
-		elseif val >= 100 then
-			return "Uncommon", RARITY_COLORS.Uncommon
+		if type(entry.Income) == "number" then
+			moneyPerSec = entry.Income
 		end
 	end
 
-	return "Common", RARITY_COLORS.Common
+	-- 3. Read money from attributes
+	local moneyAttr = instance:GetAttribute("Income")
+		or instance:GetAttribute("MoneyPerSecond")
+		or instance:GetAttribute("CashPerSecond")
+		or instance:GetAttribute("IncomePerSecond")
+		or instance:GetAttribute("Profit")
+		or instance:GetAttribute("Value")
+
+	if type(moneyAttr) == "number" and moneyAttr > 0 then
+		moneyPerSec = moneyAttr
+	end
+
+	-- 4. Read pet name fallback from attributes or clean name
+	if not petName then
+		local nameAttr = instance:GetAttribute("DisplayName") or instance:GetAttribute("PetName") or instance:GetAttribute("Name")
+		if type(nameAttr) == "string" and nameAttr ~= "" and not string.find(nameAttr, "Slot", 1, true) then
+			petName = nameAttr
+		end
+	end
+
+	-- Clean up if still nil or contains slot numbers like "AreaEggSlot_42"
+	if not petName or string.find(petName, "Slot", 1, true) or string.find(petName, "^%d+$") then
+		local rawName = instance.Name
+		-- Strip slot prefixes and numbers
+		local clean = string.gsub(rawName, "AreaEggSlot_", "")
+		clean = string.gsub(clean, "[_%d]+$", "")
+		clean = string.gsub(clean, "^_+", "")
+		if clean ~= "" and clean ~= "Egg" then
+			petName = clean
+		else
+			petName = "Mystery Egg"
+		end
+	end
+
+	-- 5. Resolve rarity & color
+	local rarityColor = RARITY_COLORS[rarity] or RARITY_COLORS.Common
+	if moneyPerSec >= 1000000 then
+		rarity = "Divine"
+		rarityColor = RARITY_COLORS.Divine
+	elseif moneyPerSec >= 100000 then
+		rarity = "Mythic"
+		rarityColor = RARITY_COLORS.Mythic
+	elseif moneyPerSec >= 10000 then
+		rarity = "Legendary"
+		rarityColor = RARITY_COLORS.Legendary
+	elseif moneyPerSec >= 2500 then
+		rarity = "Epic"
+		rarityColor = RARITY_COLORS.Epic
+	elseif moneyPerSec >= 500 then
+		rarity = "Rare"
+		rarityColor = RARITY_COLORS.Rare
+	elseif moneyPerSec >= 100 then
+		rarity = "Uncommon"
+		rarityColor = RARITY_COLORS.Uncommon
+	end
+
+	return petName, moneyPerSec, rarity, rarityColor
 end
 
 function EggData.getPrompt(instance)
-	local prompt = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
-	return prompt
-end
-
-function EggData.isClaimed(instance)
-	local node = instance
-	while node and node ~= workspace do
-		for _, attributeName in ipairs(OWNER_ATTRIBUTES) do
-			local value = node:GetAttribute(attributeName)
-			if value ~= nil and value ~= "" and value ~= 0 and value ~= false then
-				return true
-			end
-		end
-		node = node.Parent
-	end
-	return false
+	return instance:FindFirstChildWhichIsA("ProximityPrompt", true)
 end
 
 function EggData.scan(force)
@@ -170,7 +214,6 @@ function EggData.scan(force)
 		end
 	end
 
-	-- Check dedicated client folder first (fastest)
 	local clientFolder = workspace:FindFirstChild("AreaEggSlotsClient")
 	if clientFolder then
 		for _, child in ipairs(clientFolder:GetChildren()) do
@@ -178,7 +221,6 @@ function EggData.scan(force)
 		end
 	end
 
-	-- Check __OBJECTS
 	local objects = workspace:FindFirstChild("__OBJECTS")
 	if objects then
 		for _, desc in ipairs(objects:GetDescendants()) do
@@ -186,7 +228,6 @@ function EggData.scan(force)
 		end
 	end
 
-	-- Fallback scan of workspace
 	for _, inst in ipairs(workspace:GetDescendants()) do
 		addIfEgg(inst)
 	end
@@ -214,15 +255,17 @@ function EggData.nearby(radius, force)
 			if position then
 				local distance = (position - root.Position).Magnitude
 				if radius == nil or distance <= radius then
-					local rarityName, rarityColor = EggData.rarityOf(instance)
+					local petName, moneyPerSec, rarity, rarityColor = EggData.getPetInfo(instance)
 					table.insert(results, {
 						instance = instance,
 						position = position,
 						distance = distance,
-						value = EggData.valueOf(instance) or 0,
-						rarity = rarityName,
+						petName = petName,
+						moneyPerSec = moneyPerSec,
+						moneyText = EggData.formatMoney(moneyPerSec),
+						rarity = rarity,
 						rarityColor = rarityColor,
-						name = instance.Name,
+						name = petName,
 					})
 				end
 			end
@@ -240,16 +283,21 @@ function EggData.closest(radius)
 	return nearby[1]
 end
 
+-- Best egg: highest money per second and rarity
 function EggData.bestValue()
-	local best = nil
-	for _, entry in ipairs(EggData.nearby(nil)) do
-		if not EggData.isClaimed(entry.instance) then
-			if not best or entry.value > best.value then
-				best = entry
-			end
-		end
+	local all = EggData.nearby(nil)
+	if #all == 0 then
+		return nil
 	end
-	return best or EggData.closest()
+
+	table.sort(all, function(a, b)
+		if a.moneyPerSec ~= b.moneyPerSec then
+			return a.moneyPerSec > b.moneyPerSec
+		end
+		return a.distance < b.distance
+	end)
+
+	return all[1]
 end
 
 function EggData.describe(instance)
