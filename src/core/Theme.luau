@@ -20,6 +20,7 @@ local Theme = {
 	Danger = Color3.fromRGB(255, 80, 95),
 	Warning = Color3.fromRGB(255, 185, 60),
 	Success = Color3.fromRGB(80, 210, 140),
+	Info = Color3.fromRGB(80, 180, 255),
 	White = Color3.new(1, 1, 1),
 }
 
