@@ -99,13 +99,13 @@ local function drawCircle(label, parent, r, color)
 end
 
 local Theme = {
-    Background = Color3.fromRGB(12, 16, 18),
-    Window = Color3.fromRGB(20, 24, 29),
-    Surface = Color3.fromRGB(28, 34, 41),
-    SurfaceAlt = Color3.fromRGB(35, 42, 49),
-    Card = Color3.fromRGB(30, 38, 45),
-    Accent = Color3.fromRGB(112, 209, 170),
-    AccentDark = Color3.fromRGB(72, 153, 117),
+    Background = Color3.fromRGB(6, 17, 14),
+    Window = Color3.fromRGB(10, 27, 22),
+    Surface = Color3.fromRGB(14, 39, 31),
+    SurfaceAlt = Color3.fromRGB(21, 54, 43),
+    Card = Color3.fromRGB(17, 45, 36),
+    Accent = Color3.fromRGB(108, 211, 169),
+    AccentDark = Color3.fromRGB(65, 157, 119),
     TextMain = Color3.fromRGB(242, 245, 247),
     TextDim = Color3.fromRGB(153, 165, 176),
     Border = Color3.fromRGB(56, 64, 72),
@@ -251,19 +251,19 @@ function Lib.CreateWindow(opts)
 
     local tabList = Instance.new("ScrollingFrame")
     tabList.Name = "Tabs"
-    tabList.Size = UDim2.new(1, -30, 0, 36)
-    tabList.Position = UDim2.fromOffset(15, 60)
+    tabList.Size = UDim2.new(0, 86, 1, -72)
+    tabList.Position = UDim2.fromOffset(10, 64)
     tabList.BackgroundTransparency = 1
     tabList.BorderSizePixel = 0
     tabList.ScrollBarThickness = 0
-    tabList.AutomaticCanvasSize = Enum.AutomaticSize.X
+    tabList.AutomaticCanvasSize = Enum.AutomaticSize.Y
     tabList.CanvasSize = UDim2.new(0, 0, 0, 0)
     tabList.Parent = window
 
     local contentArea = Instance.new("Frame")
     contentArea.Name = "Content"
-    contentArea.Size = UDim2.new(1, -18, 1, -106)
-    contentArea.Position = UDim2.fromOffset(9, 98)
+    contentArea.Size = UDim2.new(1, -108, 1, -72)
+    contentArea.Position = UDim2.fromOffset(102, 64)
     contentArea.BackgroundTransparency = 1
     contentArea.ClipsDescendants = true
     contentArea.Parent = window
@@ -322,16 +322,35 @@ function Lib.CreateWindow(opts)
     end)
 
     local dragObject
-    header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragObject = input
-        end
-    end)
-    header.InputEnded:Connect(function(input)
-        if input == dragObject then
-            dragObject = nil
-        end
-    end)
+    local function connectDragZone(zone)
+        zone.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragObject = input
+            end
+        end)
+        zone.InputEnded:Connect(function(input)
+            if input == dragObject then
+                dragObject = nil
+            end
+        end)
+    end
+    connectDragZone(header)
+
+    local function addDragZone(name, zoneSize, zonePosition)
+        local zone = Instance.new("TextButton")
+        zone.Name = name
+        zone.Size = zoneSize
+        zone.Position = zonePosition
+        zone.BackgroundTransparency = 1
+        zone.Text = ""
+        zone.ZIndex = 7
+        zone.Parent = window
+        connectDragZone(zone)
+    end
+    addDragZone("DragTop", UDim2.new(1, -80, 0, 8), UDim2.fromOffset(40, 0))
+    addDragZone("DragLeft", UDim2.new(0, 8, 1, -72), UDim2.fromOffset(0, 64))
+    addDragZone("DragRight", UDim2.new(0, 8, 1, -72), UDim2.new(1, -8, 0, 64))
+    addDragZone("DragBottom", UDim2.new(1, -40, 0, 8), UDim2.new(0, 0, 1, -8))
     UserInputService.InputChanged:Connect(function(input)
         if input == dragObject and input.UserInputType == Enum.UserInputType.MouseMovement then
             local pos = UserInputService:GetMouseLocation()
@@ -350,8 +369,8 @@ function Lib.CreateWindow(opts)
 
         local btn = Instance.new("TextButton")
         btn.Name = name
-        btn.Size = UDim2.new(0, 86, 0, 30)
-        btn.Position = UDim2.fromOffset((tabIndex - 1) * 92, 0)
+        btn.Size = UDim2.new(1, -4, 0, 30)
+        btn.Position = UDim2.fromOffset(2, (tabIndex - 1) * 36)
         btn.BackgroundColor3 = Theme.SurfaceAlt
         btn.BorderSizePixel = 0
         btn.Text = name
@@ -923,49 +942,6 @@ function buildHub()
                     end
                 end, true)
                 tab:AddLabel("Add your Steal An Egg features here.", true)
-            end,
-        },
-        {
-            Name = "Slap Battles",
-            PlaceId = 6403373529,
-            TabLabel = "Slap Battles",
-            Load = function(hub, tab)
-                tab:AddButton("Teleport to Spawn", function()
-                    local char = getCharacter()
-                    local root = getRootPart(char)
-                    local spawn = workspace:FindFirstChild("Spawns")
-                    if spawn then
-                        local part = spawn:FindFirstChildWhichIsA("Part") or workspace:FindFirstChildWhichIsA("SpawnLocation")
-                        if part and root then
-                            root.CFrame = part.CFrame + Vector3.new(0, 5, 0)
-                        end
-                    end
-                end, true)
-                tab:AddLabel("Add your Slap Battles features here.", true)
-            end,
-        },
-        {
-            Name = "Tower Defense Simulator",
-            PlaceId = 3260590327,
-            TabLabel = "TDS",
-            Load = function(hub, tab)
-                tab:AddLabel("Add your TDS features here.", true)
-            end,
-        },
-        {
-            Name = "Untitled Boxing Game",
-            PlaceId = 4908431598,
-            TabLabel = "UBG",
-            Load = function(hub, tab)
-                tab:AddLabel("Add your UBG features here.", true)
-            end,
-        },
-        {
-            Name = "Prison Life",
-            PlaceId = 155615604,
-            TabLabel = "Prison Life",
-            Load = function(hub, tab)
-                tab:AddLabel("Add your Prison Life features here.", true)
             end,
         },
     }
