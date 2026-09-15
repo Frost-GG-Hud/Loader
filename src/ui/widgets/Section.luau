@@ -43,5 +43,9 @@ return function(tab, title)
 	})
 	Builder.corner(line, 1)
 
+	if tab.registerWidget then
+		tab:registerWidget(row, HEIGHT, GAP, title)
+	end
+
 	return { _row = row, _title = titleLabel }
 end
