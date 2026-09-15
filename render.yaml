@@ -6,5 +6,5 @@ services:
     startCommand: python server.py
     plan: free
     envVars:
-      - key: SITE_ADMIN_TOKEN
+      - key: iNjV/HxQnZt164fCpZsLzno3NWzxyutRknRuWrwhI1E=
         generateValue: true
