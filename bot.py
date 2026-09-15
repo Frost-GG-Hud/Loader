@@ -76,7 +76,8 @@ async def key_command(interaction: discord.Interaction):
 
 
 @tree.command(name="info", description="Get the Frost script loader and current key")
-async def info_command(interaction: discord.Interaction):
+@app_commands.describe(channel="Specific channel to send the info to (optional)")
+async def info_command(interaction: discord.Interaction, channel: discord.TextChannel = None):
     current = load_key()
     script_url = github_raw_url("src/Loader.luau")
     loader = f'loadstring(game:HttpGet("{script_url}"))()'
@@ -90,9 +91,17 @@ async def info_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title=f"{FROST_EMOJI} Frost Hub",
         description=description,
-        color=discord.Color.from_rgb(0, 215, 255),
+        color=discord.Color.from_rgb(46, 204, 113),
     )
-    await interaction.response.send_message(embed=embed)
+
+    if channel:
+        try:
+            await channel.send(embed=embed)
+            await interaction.response.send_message(f"Sent the Frost Hub info to {channel.mention}!", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Could not send to {channel.mention}: {e}", ephemeral=True)
+    else:
+        await interaction.response.send_message(embed=embed)
 
 
 @tree.command(name="script", description="Get the Frost loader script")
