@@ -95,11 +95,12 @@ async def info_command(interaction: discord.Interaction, channel: discord.TextCh
     )
 
     if channel:
+        await interaction.response.defer(ephemeral=True)
         try:
             await channel.send(embed=embed)
-            await interaction.response.send_message(f"Sent the Frost Hub info to {channel.mention}!", ephemeral=True)
+            await interaction.followup.send(f"Sent the Frost Hub info to {channel.mention}!", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"Could not send to {channel.mention}: {e}", ephemeral=True)
+            await interaction.followup.send(f"Could not send to {channel.mention}: {e}", ephemeral=True)
     else:
         await interaction.response.send_message(embed=embed)
 
