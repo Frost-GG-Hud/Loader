@@ -92,42 +92,73 @@ function Header.new(config)
 
 	local titleLabel = Builder.label({
 		Name = "Title",
-		Size = UDim2.new(0, 160, 0, 20),
-		Position = UDim2.fromOffset(44, 13),
+		Size = UDim2.new(0, 130, 0, 20),
+		Position = UDim2.fromOffset(42, 14),
 		Font = Theme.FontBold,
-		TextSize = 15,
-		Text = config.title or "Frost",
+		TextSize = 14,
+		Text = config.title or "Frost Hub",
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextColor3 = Theme.TextMain,
 		ZIndex = 7,
 		Parent = header,
 	})
 
-	local subtitleLabel = Builder.label({
-		Name = "Subtitle",
-		Size = UDim2.new(0, 180, 0, 14),
-		Position = UDim2.fromOffset(44, 31),
-		Font = Theme.FontRegular,
-		TextSize = 10,
-		Text = config.subtitle or "",
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		TextColor3 = Theme.TextDim,
+	-- Status Pills Container (Zeroin style)
+	local pillsContainer = Builder.frame({
+		Name = "Pills",
+		Size = UDim2.new(0, 260, 0, 24),
+		Position = UDim2.new(1, -(BUTTON_SIZE * 2 + 285), 0, 12),
+		BackgroundTransparency = 1,
 		ZIndex = 7,
 		Parent = header,
 	})
 
-	local statsLabel = Builder.label({
-		Name = "StatsLabel",
-		Size = UDim2.new(0, 120, 0, 20),
-		Position = UDim2.new(1, -(BUTTON_SIZE * 2 + 155), 0, 16),
-		Font = Theme.FontBold,
-		TextSize = 11,
-		Text = "FPS: -- | MS: --",
-		TextColor3 = Theme.Success,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		ZIndex = 7,
-		Parent = header,
+	local pillsLayout = Builder.new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = pillsContainer,
 	})
+
+	local function makePill(name, text, icon, color, order)
+		local pill = Builder.frame({
+			Name = name,
+			Size = UDim2.new(0, 0, 0, 22),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundColor3 = Theme.SurfaceAlt,
+			ZIndex = 8,
+			LayoutOrder = order,
+			Parent = pillsContainer,
+		})
+		Builder.pillCorner(pill)
+		Builder.stroke(pill, {
+			Color = Theme.Border,
+			Thickness = 1,
+			Transparency = 0.3,
+		})
+		Builder.padding(pill, {
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+		})
+
+		local lbl = Builder.label({
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Font = Theme.FontMedium,
+			TextSize = 10,
+			Text = icon .. " " .. text,
+			TextColor3 = color or Theme.TextDim,
+			ZIndex = 9,
+			Parent = pill,
+		})
+		return pill, lbl
+	end
+
+	local _, gameLabel = makePill("GamePill", "Steal An Egg", "🎮", Theme.Accent, 1)
+	local _, fpsLabel = makePill("FpsPill", "60 FPS", "📶", Theme.Success, 2)
+	local _, pingLabel = makePill("PingPill", "Real", "⚡", Theme.AccentGlow, 3)
 
 	-- Live FPS and Ping monitor
 	local RunService = game:GetService("RunService")
@@ -143,13 +174,14 @@ function Header.new(config)
 			pcall(function()
 				ping = math.round(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
 			end)
-			statsLabel.Text = string.format("FPS: %d | MS: %d", fps, ping)
+			fpsLabel.Text = string.format("📶 %d FPS", fps)
+			pingLabel.Text = string.format("⚡ %dms", ping)
 			if fps < 30 then
-				statsLabel.TextColor3 = Theme.Danger
+				fpsLabel.TextColor3 = Theme.Danger
 			elseif fps < 50 then
-				statsLabel.TextColor3 = Theme.Warning
+				fpsLabel.TextColor3 = Theme.Warning
 			else
-				statsLabel.TextColor3 = Theme.Success
+				fpsLabel.TextColor3 = Theme.Success
 			end
 			frames = 0
 			lastTime = now
@@ -212,8 +244,7 @@ function Header.new(config)
 	return {
 		frame = header,
 		titleLabel = titleLabel,
-		subtitleLabel = subtitleLabel,
-		statsLabel = statsLabel,
+		pillsContainer = pillsContainer,
 		destroy = function()
 			if statConn then
 				statConn:Disconnect()
@@ -224,8 +255,8 @@ function Header.new(config)
 			if restoreGlyph then
 				restoreGlyph.Visible = minimized
 			end
-			if statsLabel then
-				statsLabel.Visible = not minimized
+			if pillsContainer then
+				pillsContainer.Visible = not minimized
 			end
 		end,
 	}
