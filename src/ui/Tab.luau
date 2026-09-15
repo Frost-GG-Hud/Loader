@@ -27,7 +27,6 @@ function Tab.new(config)
 	self._btn = Builder.button({
 		Name = config.name,
 		Size = UDim2.new(1, -4, 0, BUTTON_HEIGHT),
-		Position = UDim2.fromOffset(2, (config.index - 1) * (BUTTON_HEIGHT + BUTTON_GAP)),
 		BackgroundColor3 = Theme.SurfaceAlt,
 		Text = "  " .. config.name,
 		Font = Theme.FontMedium,
@@ -35,6 +34,7 @@ function Tab.new(config)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		TextTruncate = Enum.TextTruncate.AtEnd,
+		LayoutOrder = config.index,
 		Parent = config.buttonParent,
 	})
 	Builder.corner(self._btn, 7)
@@ -65,6 +65,14 @@ end
 
 function Tab:getName()
 	return self._name
+end
+
+function Tab:setButtonVisible(visible)
+	visible = visible == true
+	self._btn.Visible = visible
+	if not visible and self._page.Visible then
+		self._page.Visible = false
+	end
 end
 
 function Tab:setActive(active)
