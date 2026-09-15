@@ -51,22 +51,73 @@ local function fetch(url)
             return svc:HttpGet(url)
         end,
         function()
+            if not svc.HttpGetAsync then
+                return nil
+            end
             return svc:HttpGetAsync(url)
         end,
         function()
             return game:HttpGet(url)
         end,
         function()
+            if not game.HttpGetAsync then
+                return nil
+            end
             return game:HttpGetAsync(url)
         end,
         function()
-            return request({ Url = url, Method = "GET" }).Body
+            if not request then
+                return nil
+            end
+            local ok, res = pcall(function()
+                return request({ Url = url, Method = "GET" })
+            end)
+            if not ok or not res then
+                return nil
+            end
+            if type(res) == "table" and res.Body then
+                return res.Body
+            end
+            if type(res) == "string" and #res > 0 then
+                return res
+            end
+            return nil
         end,
         function()
-            return http_request({ Url = url, Method = "GET" }).Body
+            if not http_request then
+                return nil
+            end
+            local ok, res = pcall(function()
+                return http_request({ Url = url, Method = "GET" })
+            end)
+            if not ok or not res then
+                return nil
+            end
+            if type(res) == "table" and res.Body then
+                return res.Body
+            end
+            if type(res) == "string" and #res > 0 then
+                return res
+            end
+            return nil
         end,
         function()
-            return syn.request({ Url = url, Method = "GET" }).Body
+            if not syn or not syn.request then
+                return nil
+            end
+            local ok, res = pcall(function()
+                return syn.request({ Url = url, Method = "GET" })
+            end)
+            if not ok or not res then
+                return nil
+            end
+            if type(res) == "table" and res.Body then
+                return res.Body
+            end
+            if type(res) == "string" and #res > 0 then
+                return res
+            end
+            return nil
         end,
     }
     for _, fn in ipairs(attempts) do
