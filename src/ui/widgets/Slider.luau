@@ -56,19 +56,27 @@ return function(tab, text, min, max, default, onChange, step)
 		Parent = card,
 	})
 
-	local valueChip = Builder.label({
+	local valueChip = Builder.new("TextBox", {
 		Size = UDim2.fromOffset(52, 22),
 		Position = UDim2.new(1, -62, 0, 4),
 		BackgroundColor3 = Theme.SurfaceAlt,
 		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
 		Font = Theme.FontBold,
 		TextSize = 12,
 		Text = tostring(value),
 		TextColor3 = accent,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		ClearTextOnFocus = false,
+		ClipsDescendants = true,
 		Parent = card,
 	})
 	Builder.corner(valueChip, Theme.Metrics.CornerSmall)
+	Builder.stroke(valueChip, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.5,
+	})
 
 	local track = Builder.frame({
 		Name = "Track",
@@ -187,7 +195,20 @@ return function(tab, text, min, max, default, onChange, step)
 		end)
 	end)
 
+	valueChip.FocusLost:Connect(function()
+		local typed = tonumber(valueChip.Text)
+		if typed then
+			commit(typed)
+		else
+			render(value)
+		end
+	end)
+
 	render(value)
+
+	if tab.registerWidget then
+		tab:registerWidget(card, HEIGHT, GAP, text)
+	end
 
 	return {
 		Get = function()
