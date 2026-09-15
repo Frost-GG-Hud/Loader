@@ -16,15 +16,30 @@ Roblox hub with a key-gated GUI. The key UI pops up first; valid keys unlock a f
 
 ### Option A: your own website (no GitHub needed)
 
-1. Deploy this folder to **Render**, **Railway**, or **Glitch** (the free tier is enough).
-   - Render: sign in, New Web Service, connect the repo or drop the folder; `render.yaml` sets it up automatically.
-   - Or run `python server.py` locally and expose it with `cloudflared tunnel`.
-2. The loadstring then becomes:
+1. Deploy this folder to **Render**. Create a Web Service from the repository; `render.yaml` selects `python server.py` automatically.
+2. In the Render service environment variables, set:
+   - `SITE_ADMIN_TOKEN` to a long random value.
+   - `KEY_FILE` to `/tmp/keys.json` only if the service filesystem is ephemeral and you accept resetting the key on restart; otherwise use persistent storage.
+3. Copy the service URL into your local `.env` as `SITE_URL` and use the same `SITE_ADMIN_TOKEN` there.
+4. The loadstring then becomes:
    ```lua
    loadstring(game:HttpGet("https://YOUR-SITE.onrender.com/api/script"))()
    ```
-3. In `.env` set `SITE_URL` to your domain and `SITE_ADMIN_TOKEN` to any long random value.
-   `/setkey` then pushes the new key straight to the site; the hub picks it up live.
+5. `/setkey` then pushes the new key straight to the site; the hub picks it up live.
+
+For local testing, run:
+
+```powershell
+python server.py
+```
+
+To make that local server reachable from Roblox, expose port `8000` with a tunnel provider, then use:
+
+```lua
+loadstring(game:HttpGet("https://YOUR-TUNNEL-DOMAIN/api/script"))()
+```
+
+Keep `SITE_ADMIN_TOKEN` set locally. The server now rejects all key updates when the token is missing instead of leaving the write endpoint open.
 
 ### Option B: GitHub raw links (needs a working GitHub account)
 
