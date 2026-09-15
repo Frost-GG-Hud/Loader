@@ -54,8 +54,20 @@ return function(tab, labelText, placeholderText, defaultText, onCommit)
 		PaddingLeft = UDim.new(0, 8),
 		PaddingRight = UDim.new(0, 8),
 	})
+	local boxStroke = Builder.stroke(box, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.5,
+	})
+
+	box.Focused:Connect(function()
+		boxStroke.Color = tab._accent
+		boxStroke.Transparency = 0.2
+	end)
 
 	box.FocusLost:Connect(function(enterPressed)
+		boxStroke.Color = Theme.Border
+		boxStroke.Transparency = 0.5
 		currentText = box.Text
 		if onCommit then
 			local ok, err = pcall(onCommit, currentText, enterPressed)
@@ -64,6 +76,10 @@ return function(tab, labelText, placeholderText, defaultText, onCommit)
 			end
 		end
 	end)
+
+	if tab.registerWidget then
+		tab:registerWidget(card, HEIGHT, GAP, labelText)
+	end
 
 	return {
 		Get = function()
