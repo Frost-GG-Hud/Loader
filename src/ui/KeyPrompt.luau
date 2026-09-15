@@ -1,15 +1,9 @@
--- The modal key gate shown before the hub exists.
---
--- Fixes over the original prompt:
---  * it reads the key through core/Http, which actually resolves on every
---    executor instead of silently relying on `HttpService:HttpGet`;
---  * a `busy` latch plus disabling the button stops a double click from firing
---    two fetches and building two hubs;
---  * the pointless fixed 0.3s delay on "Re-check Key" is gone;
---  * network failure and a wrong key now report different messages;
---  * the status line is tall enough for two wrapped lines, so the message can
---    no longer be clipped;
---  * clipboard support covers the names executors actually ship.
+-- The modal key gate shown before the hub exists (Rayfield / Fluent style).
+-- Features:
+--  * Auto-login persistence via executor filesystem (`frost_key.txt`).
+--  * "Paste from Clipboard" button for mobile & desktop convenience.
+--  * HTTP fallback verification via core/Http.
+--  * Modern glowing card aesthetics and status feedback.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -20,26 +14,24 @@ local Http = ctx.require("core/Http")
 
 local M = Theme.Metrics
 
-local CARD_WIDTH = 400
-local CARD_HEIGHT = 300
-local CLIPBOARD_NAMES = { "setclipboard", "toclipboard", "writeclipboard", "set_clipboard" }
+local CARD_WIDTH = 420
+local CARD_HEIGHT = 330
+local SET_CLIPBOARD_NAMES = { "setclipboard", "toclipboard", "writeclipboard", "set_clipboard" }
+local GET_CLIPBOARD_NAMES = { "getclipboard", "get_clipboard", "fromclipboard", "getClipboard" }
+local KEY_STORAGE_FILE = "frost_key.txt"
 
 local KeyPrompt = {}
 KeyPrompt.__index = KeyPrompt
 
 local function copyToClipboard(text)
 	local namespaces = {}
-	if getfenv then
-		table.insert(namespaces, getfenv())
-	end
-	if getgenv then
-		table.insert(namespaces, getgenv())
-	end
+	if getfenv then table.insert(namespaces, getfenv()) end
+	if getgenv then table.insert(namespaces, getgenv()) end
 	table.insert(namespaces, _G)
 
 	for _, namespace in ipairs(namespaces) do
 		if type(namespace) == "table" then
-			for _, name in ipairs(CLIPBOARD_NAMES) do
+			for _, name in ipairs(SET_CLIPBOARD_NAMES) do
 				local fn = namespace[name]
 				if type(fn) == "function" then
 					if pcall(fn, text) then
@@ -50,6 +42,51 @@ local function copyToClipboard(text)
 		end
 	end
 	return false
+end
+
+local function getFromClipboard()
+	local namespaces = {}
+	if getfenv then table.insert(namespaces, getfenv()) end
+	if getgenv then table.insert(namespaces, getgenv()) end
+	table.insert(namespaces, _G)
+
+	for _, namespace in ipairs(namespaces) do
+		if type(namespace) == "table" then
+			for _, name in ipairs(GET_CLIPBOARD_NAMES) do
+				local fn = namespace[name]
+				if type(fn) == "function" then
+					local ok, res = pcall(fn)
+					if ok and type(res) == "string" and #res > 0 then
+						return res
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function loadSavedKey()
+	local ok, res = pcall(function()
+		local read = readfile or (syn and syn.readfile)
+		if read then
+			return read(KEY_STORAGE_FILE)
+		end
+		return nil
+	end)
+	if ok and type(res) == "string" and #res > 0 then
+		return res
+	end
+	return nil
+end
+
+local function saveKeyLocally(key)
+	pcall(function()
+		local write = writefile or (syn and syn.writefile)
+		if write then
+			write(KEY_STORAGE_FILE, tostring(key))
+		end
+	end)
 end
 
 function KeyPrompt.new(config)
@@ -64,11 +101,10 @@ function KeyPrompt.new(config)
 		Name = "Backdrop",
 		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundColor3 = Color3.new(0, 0, 0),
-		BackgroundTransparency = 0.58,
+		BackgroundTransparency = 0.52,
 		ZIndex = 1,
 		Parent = self.screenGui,
 	})
-	-- Clicking the dim area does nothing: this is a gate, not a dismissible panel.
 	Builder.makeInteractive(backdrop)
 
 	local card = Builder.frame({
@@ -83,8 +119,8 @@ function KeyPrompt.new(config)
 	Builder.corner(card, M.CornerWindow)
 	Builder.stroke(card, {
 		Color = Theme.Accent,
-		Thickness = 1.2,
-		Transparency = 0.32,
+		Thickness = 1.4,
+		Transparency = 0.3,
 	})
 
 	local glow = Builder.frame({
@@ -92,62 +128,97 @@ function KeyPrompt.new(config)
 		Size = UDim2.new(1, -30, 0, 58),
 		Position = UDim2.fromOffset(15, 14),
 		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.9,
+		BackgroundTransparency = 0.92,
 		ZIndex = 3,
 		Parent = card,
 	})
 	Builder.corner(glow, 14)
 
 	Builder.label({
-		Size = UDim2.new(1, -40, 0, 28),
-		Position = UDim2.fromOffset(20, 22),
+		Size = UDim2.new(1, -40, 0, 26),
+		Position = UDim2.fromOffset(20, 20),
 		Font = Theme.FontBold,
-		TextSize = 22,
-		Text = "Frost",
+		TextSize = 20,
+		Text = "❄️ FROST HUB",
 		TextColor3 = Theme.TextMain,
 		ZIndex = 4,
 		Parent = card,
 	})
 
 	Builder.label({
-		Size = UDim2.new(1, -40, 0, 18),
-		Position = UDim2.fromOffset(20, 52),
+		Size = UDim2.new(1, -40, 0, 16),
+		Position = UDim2.fromOffset(20, 48),
 		Font = Theme.FontRegular,
-		TextSize = 12,
-		Text = "Enter your key to continue",
+		TextSize = 11,
+		Text = "Key-Gated Access  •  Auto-Login Persistence",
 		TextColor3 = Theme.TextDim,
 		ZIndex = 4,
 		Parent = card,
 	})
 
-	local box = Builder.new("TextBox", {
-		Name = "KeyInput",
-		Size = UDim2.new(1, -40, 0, 40),
-		Position = UDim2.fromOffset(20, 86),
+	-- Input Row Container (TextBox + Paste Button)
+	local inputRow = Builder.frame({
+		Name = "InputRow",
+		Size = UDim2.new(1, -40, 0, 42),
+		Position = UDim2.fromOffset(20, 78),
 		BackgroundColor3 = Theme.Surface,
-		BorderSizePixel = 0,
-		Font = Theme.FontBold,
-		TextSize = 15,
-		Text = "",
-		PlaceholderText = "FREEKEY-XXXX-XXXX",
-		PlaceholderColor3 = Theme.TextMuted,
-		TextColor3 = Theme.TextMain,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		ClearTextOnFocus = false,
 		ZIndex = 4,
 		Parent = card,
 	})
-	Builder.corner(box, 10)
+	Builder.corner(inputRow, 10)
+	local inputStroke = Builder.stroke(inputRow, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.4,
+	})
+
+	local box = Builder.new("TextBox", {
+		Name = "KeyInput",
+		Size = UDim2.new(1, -78, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+		BackgroundTransparency = 1,
+		Font = Theme.FontBold,
+		TextSize = 13,
+		Text = "",
+		PlaceholderText = "Paste or enter key here...",
+		PlaceholderColor3 = Theme.TextMuted,
+		TextColor3 = Theme.TextMain,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 5,
+		Parent = inputRow,
+	})
+
+	local pasteBtn = Builder.new("TextButton", {
+		Name = "PasteBtn",
+		Size = UDim2.fromOffset(58, 28),
+		Position = UDim2.new(1, -64, 0.5, -14),
+		BackgroundColor3 = Theme.SurfaceAlt,
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+		Font = Theme.FontMedium,
+		TextSize = 11,
+		TextColor3 = Theme.Accent,
+		Text = "📋 Paste",
+		ZIndex = 6,
+		Parent = inputRow,
+	})
+	Builder.corner(pasteBtn, 6)
+	Builder.stroke(pasteBtn, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.4,
+	})
 
 	local status = Builder.label({
 		Name = "Status",
-		Size = UDim2.new(1, -40, 0, 34),
-		Position = UDim2.fromOffset(20, 132),
-		Font = Theme.FontRegular,
-		TextSize = 12,
+		Size = UDim2.new(1, -40, 0, 32),
+		Position = UDim2.fromOffset(20, 126),
+		Font = Theme.FontMedium,
+		TextSize = 11,
 		Text = "",
 		TextWrapped = true,
-		TextYAlignment = Enum.TextYAlignment.Top,
+		TextYAlignment = Enum.TextYAlignment.Center,
 		TextColor3 = Theme.TextDim,
 		ZIndex = 4,
 		Parent = card,
@@ -160,7 +231,7 @@ function KeyPrompt.new(config)
 
 	local row = Builder.frame({
 		Size = UDim2.new(1, -40, 0, 36),
-		Position = UDim2.fromOffset(20, 172),
+		Position = UDim2.fromOffset(20, 164),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = card,
@@ -173,9 +244,9 @@ function KeyPrompt.new(config)
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
 		Font = Theme.FontBold,
-		TextSize = 14,
+		TextSize = 13,
 		TextColor3 = Theme.White,
-		Text = "Unlock",
+		Text = "Unlock Hub",
 		ZIndex = 5,
 		Parent = row,
 	})
@@ -188,7 +259,7 @@ function KeyPrompt.new(config)
 		BackgroundColor3 = Theme.Surface,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
-		Font = Theme.FontRegular,
+		Font = Theme.FontMedium,
 		TextSize = 13,
 		TextColor3 = Theme.TextMain,
 		Text = "Re-check Key",
@@ -200,26 +271,26 @@ function KeyPrompt.new(config)
 	local getKeyBtn = Builder.new("TextButton", {
 		Name = "GetKey",
 		Size = UDim2.new(1, -40, 0, 34),
-		Position = UDim2.fromOffset(20, 216),
+		Position = UDim2.fromOffset(20, 208),
 		BackgroundColor3 = Theme.AccentDark,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
 		Font = Theme.FontMedium,
-		TextSize = 13,
+		TextSize = 12,
 		TextColor3 = Theme.White,
-		Text = "Get Key - Copy Discord Invite",
+		Text = "Get Free Key - Copy Discord Invite",
 		ZIndex = 5,
 		Parent = card,
 	})
 	Builder.corner(getKeyBtn, 9)
 
 	Builder.label({
-		Size = UDim2.new(1, 0, 0, 18),
-		Position = UDim2.fromOffset(0, 258),
+		Size = UDim2.new(1, 0, 0, 16),
+		Position = UDim2.fromOffset(0, 250),
 		Font = Theme.FontRegular,
-		TextSize = 11,
-		Text = "Get the free key with /key in our Discord (role required)",
-		TextColor3 = Theme.TextDim,
+		TextSize = 10,
+		Text = "Get the free key in our Discord via /key command",
+		TextColor3 = Theme.TextMuted,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 4,
 		Parent = card,
@@ -229,7 +300,7 @@ function KeyPrompt.new(config)
 		self.busy = busy
 		unlockBtn.Active = not busy
 		retryBtn.Active = not busy
-		unlockBtn.Text = busy and "Checking..." or "Unlock"
+		unlockBtn.Text = busy and "Checking..." or "Unlock Hub"
 	end
 
 	local function attempt()
@@ -239,32 +310,33 @@ function KeyPrompt.new(config)
 
 		local entered = Util.normalizeKey(box.Text)
 		if entered == "" then
-			setStatus("Enter the key from /key in our Discord first.", Theme.Warning)
+			setStatus("Please enter or paste your key from /key first.", Theme.Warning)
 			return
 		end
 
 		setBusy(true)
-		setStatus("Checking the key against GitHub...")
+		setStatus("Checking key with GitHub...")
 
 		Util.spawn(function()
 			local serverKey = Http.getLiveKey(Config.KeyFile)
 
 			if not serverKey then
 				setBusy(false)
-				setStatus("Could not reach GitHub for the key list. Check your connection and try Re-check.", Theme.Danger)
+				setStatus("Could not reach GitHub for verification. Check internet & try Re-check.", Theme.Danger)
 				return
 			end
 
 			if Util.normalizeKey(serverKey) ~= entered then
 				setBusy(false)
 				setStatus(
-					string.format("Invalid key (%d characters). Run /key in our Discord for the current one.", #entered),
+					string.format("Invalid key (%d chars). Check /key in our Discord for the current key.", #entered),
 					Theme.Danger
 				)
 				return
 			end
 
-			setStatus("Key accepted. Opening the hub...", Theme.Success)
+			setStatus("Key accepted! Saving session & loading Frost Hub...", Theme.Success)
+			saveKeyLocally(entered)
 
 			local ok, err = pcall(self.onUnlocked)
 			if ok then
@@ -277,6 +349,16 @@ function KeyPrompt.new(config)
 		end)
 	end
 
+	pasteBtn.MouseButton1Click:Connect(function()
+		local clipText = getFromClipboard()
+		if clipText and #clipText > 0 then
+			box.Text = clipText
+			setStatus("Key pasted from clipboard!", Theme.Success)
+		else
+			setStatus("Clipboard is empty or unsupported on this executor.", Theme.Warning)
+		end
+	end)
+
 	unlockBtn.MouseButton1Click:Connect(attempt)
 	retryBtn.MouseButton1Click:Connect(attempt)
 	box.FocusLost:Connect(function(enterPressed)
@@ -287,11 +369,19 @@ function KeyPrompt.new(config)
 
 	getKeyBtn.MouseButton1Click:Connect(function()
 		if copyToClipboard(Config.DiscordInvite) then
-			setStatus("Discord invite copied. Paste it into Discord or your browser.", Theme.Success)
+			setStatus("Discord invite copied to clipboard!", Theme.Success)
 		else
-			setStatus("Discord invite: " .. Config.DiscordInvite, Theme.Accent)
+			setStatus("Discord: " .. Config.DiscordInvite, Theme.Accent)
 		end
 	end)
+
+	-- Auto-login check: read saved key if present
+	local saved = loadSavedKey()
+	if saved and #saved > 0 then
+		box.Text = saved
+		setStatus("Saved key detected! Auto-verifying...", Theme.Accent)
+		Util.delay(0.3, attempt)
+	end
 
 	return self
 end
