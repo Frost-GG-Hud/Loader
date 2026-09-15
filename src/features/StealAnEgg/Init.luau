@@ -1,4 +1,5 @@
--- Wires the Steal An Egg modules into dedicated category tabs.
+-- Wires the Steal An Egg modules into Zeroin-style category tabs.
+-- Uses 2-column grid layout for toggles and inputs, ZERO teleportation, speed 1-1000 bypass.
 
 local ctx = ...
 local EggData = ctx.require("features/StealAnEgg/EggData")
@@ -17,10 +18,9 @@ return function(hub, tabs, cleanup)
 	local esp = Esp.new({ notify = notify, range = DEFAULT_RANGE })
 	local movement = Movement.new({ notify = notify })
 
-	local autoTab = tabs.autoTab or tabs
+	local mainTab = tabs.autoTab or tabs
 	local espTab = tabs.espTab or tabs
 	local defenseTab = tabs.defenseTab or tabs
-	local tpTab = tabs.tpTab or tabs
 	local webhookTab = tabs.webhookTab or tabs
 
 	local function teardown()
@@ -28,74 +28,129 @@ return function(hub, tabs, cleanup)
 		movement:stop()
 		EggData.invalidate()
 	end
-	if autoTab._trackCleanup then
-		autoTab:_trackCleanup(teardown)
+	if mainTab._trackCleanup then
+		mainTab:_trackCleanup(teardown)
 	end
 	cleanup.track(teardown)
 
-	-- ------------------------------------------------------------- AUTOMATION
-	autoTab:AddSection("Bypass Speed Customization (1 - 1000)")
-	autoTab:AddLabel("Adjust speed for walking and auto farm.", true)
+	-- ------------------------------------------------------------- MAIN (ZEROIN STYLE)
+	mainTab:AddSection("Auto Steal & Protection")
 
-	autoTab:AddSlider("Movement Speed", 1, 1000, 60, function(value)
+	-- 2-Column Grid Row 1: Auto Steal | Auto Treadmill
+	mainTab:AddToggleGrid(
+		{
+			title = "Auto Steal",
+			desc = "Holds E, steals & deposits",
+			default = false,
+			onChange = function(on)
+				movement:toggleAutoFarmBest(on)
+			end,
+		},
+		{
+			title = "Auto Treadmill",
+			desc = "Trains speed automatically",
+			default = false,
+			onChange = function(on)
+				movement:toggleAutoTreadmill(on)
+			end,
+		}
+	)
+
+	-- 2-Column Grid Row 2: Anti Knock Back | God Mode
+	mainTab:AddToggleGrid(
+		{
+			title = "Anti Knock Back",
+			desc = "Blocks chicken & animal hits",
+			default = false,
+			onChange = function(on)
+				movement:toggleAntiKnockback(on)
+			end,
+		},
+		{
+			title = "God Mode",
+			desc = "Anti-Ragdoll & knockdowns",
+			default = false,
+			onChange = function(on)
+				movement:toggleAntiRagdoll(on)
+			end,
+		}
+	)
+
+	-- 2-Column Grid Row 3: Speed | Steal By Value (Input boxes)
+	mainTab:AddInputGrid(
+		{
+			title = "Speed",
+			desc = "Speed level 1 - 1000",
+			placeholder = "60",
+			default = "60",
+			onChange = function(val)
+				movement:setSpeed(tonumber(val) or 60)
+			end,
+		},
+		{
+			title = "Steal By Value",
+			desc = "Min value; supports k, m, b",
+			placeholder = "e.g. 1m, 500k",
+			default = "0",
+			onChange = function(val)
+				movement:setMinMoney(val)
+			end,
+		}
+	)
+
+	mainTab:AddSection("Movement Speed & Bypass")
+
+	mainTab:AddSlider("Fine-Tune Speed", 1, 1000, 60, function(value)
 		movement:setSpeed(value)
 	end, 1)
 
-	autoTab:AddToggle("Speed Bypass Active", false, function(on)
+	mainTab:AddToggle("Speed Bypass Active (1 - 1000)", false, function(on)
 		movement:toggleSpeedBypass(on)
 	end)
 
-	autoTab:AddSection("Egg Auto Farm (Anti-Cheat Safe)")
+	mainTab:AddSection("Farming Options")
 
-	autoTab:AddToggle("Auto Farm (Best Eggs Only)", false, function(on)
-		movement:toggleAutoFarmBest(on)
-	end)
-
-	autoTab:AddToggle("Auto Farm (All Nearby Eggs)", false, function(on)
+	mainTab:AddToggle("Auto Farm All Nearby Eggs (Nearest First)", false, function(on)
 		movement:toggleAutoFarmAll(on)
 	end)
 
-	autoTab:AddSection("Instant TP to Egg (Launch Exploit)")
-	autoTab:AddLabel("Grabs a nearby egg to launch off, TPs to target, and glides home.", true)
-
-	autoTab:AddButton("Instant TP to Best Egg", function()
-		movement:instantTpToEgg(EggData.bestValue())
-	end)
-
-	autoTab:AddButton("Instant TP to Closest Egg", function()
-		movement:instantTpToEgg(EggData.closest())
-	end)
-
-	autoTab:AddSection("Pet & Cash Automation")
-
-	autoTab:AddToggle("Auto Collect Offline Cash", false, function(on)
+	mainTab:AddToggle("Auto Collect Offline Cash", false, function(on)
 		movement:toggleAutoCash(on)
 	end)
 
-	autoTab:AddButton("Equip Best Pets", function()
+	mainTab:AddButton("Equip Best Pets (WearBest)", function()
 		movement:equipBestPets()
 	end)
 
 	-- -------------------------------------------------------------------- ESP
-	espTab:AddSection("Egg ESP (Pet Name & Money/Sec Only)")
-	espTab:AddLabel("Shows only the hatching pet name and +$/s.", true)
+	espTab:AddSection("ESP & Visuals")
+	espTab:AddLabel("Above: Money / Sec  •  Below: (Egg Name) Pet Name", true)
 
-	espTab:AddToggle("Egg ESP (Pet Name + Money/s)", false, function(on)
-		esp:setEggs(on)
-	end)
-
-	espTab:AddSlider("ESP Range (studs)", MIN_RANGE, MAX_RANGE, DEFAULT_RANGE, function(value)
-		esp:setRange(value)
-	end)
-
-	espTab:AddSection("Player & Trap ESP")
+	espTab:AddToggleGrid(
+		{
+			title = "Egg ESP",
+			desc = "+$/s & (Egg) Pet Name",
+			default = false,
+			onChange = function(on)
+				esp:setEggs(on)
+			end,
+		},
+		{
+			title = "Trap ESP",
+			desc = "Warning tags on traps",
+			default = false,
+			onChange = function(on)
+				esp:setTraps(on)
+			end,
+		}
+	)
 
 	espTab:AddToggle("Player ESP (Health + Box)", false, function(on)
 		esp:setPlayers(on)
 	end)
 
-	espTab:AddToggle("Trap ESP (Warning Tags)", false, function(on)
-		esp:setTraps(on)
+	espTab:AddSlider("ESP Range (studs)", MIN_RANGE, MAX_RANGE, DEFAULT_RANGE, function(value)
+		esp:setRange(value)
 	end)
 
 	espTab:AddButton("Clear All ESP", function()
@@ -104,32 +159,39 @@ return function(hub, tabs, cleanup)
 	end, true)
 
 	-- --------------------------------------------------- DEFENSE & BYPASSES
-	defenseTab:AddSection("Defense & Anti-Cheat Protection")
+	defenseTab:AddSection("Defense & Bypasses")
 
-	defenseTab:AddToggle("Anti-Trap (Neutralize All Traps)", false, function(on)
-		movement:toggleAntiTrap(on)
-	end)
-
-	defenseTab:AddToggle("Monster / Guard Bypass (Freeze NPCs)", false, function(on)
-		movement:toggleMonsterBypass(on)
-	end)
-
-	defenseTab:AddToggle("Anti-Ragdoll (No Stun / Fall)", false, function(on)
-		movement:toggleAntiRagdoll(on)
-	end)
+	defenseTab:AddToggleGrid(
+		{
+			title = "Anti-Trap",
+			desc = "Walk through all traps",
+			default = false,
+			onChange = function(on)
+				movement:toggleAntiTrap(on)
+			end,
+		},
+		{
+			title = "Monster Bypass",
+			desc = "Freezes NPCs & hitboxes",
+			default = false,
+			onChange = function(on)
+				movement:toggleMonsterBypass(on)
+			end,
+		}
+	)
 
 	defenseTab:AddButton("Neutralize Anti-Cheat (ObbyAntiTP)", function()
 		movement:neutralizeAntiCheat()
 		notify("Anti-cheat scripts neutralized", "success")
 	end)
 
-	defenseTab:AddSection("Diagnostics")
-
 	defenseTab:AddButton("Scan Egg Attributes (Console F9)", function()
 		local sample = nil
-		for _, instance in ipairs(EggData.scan(true)) do
-			sample = instance
-			break
+		for _, entry in ipairs(EggData.scan(true)) do
+			sample = entry.model or entry.instance
+			if sample and sample:IsA("Instance") then
+				break
+			end
 		end
 
 		if not sample then
@@ -144,32 +206,9 @@ return function(hub, tabs, cleanup)
 		notify("Printed sample egg attributes to F9 console", "info")
 	end)
 
-	-- ----------------------------------------------------------- TELEPORTS
-	tpTab:AddSection("Map Teleports")
-
-	tpTab:AddButton("Teleport to Base / Plot", function()
-		movement:teleportToBase()
-	end)
-
-	tpTab:AddButton("Teleport to Closest Egg", function()
-		movement:teleportToClosestEgg()
-	end)
-
-	tpTab:AddButton("Teleport to Best Value Egg", function()
-		movement:teleportToBestEgg()
-	end)
-
-	tpTab:AddButton("Teleport to Gear Shop", function()
-		movement:teleportToGearShop()
-	end)
-
-	tpTab:AddButton("Teleport to Closest Player", function()
-		movement:teleportToClosestPlayer()
-	end)
-
 	-- ----------------------------------------------------------- WEBHOOK
 	webhookTab:AddSection("Discord Webhook Egg Logger")
-	webhookTab:AddLabel("Sends a Discord embed whenever you steal an egg!", false)
+	webhookTab:AddLabel("Sends clean pet name, rarity, and money/sec to your Discord!", false)
 
 	webhookTab:AddInput("Discord Webhook URL", "https://discord.com/api/webhooks/...", "", function(url)
 		movement:setWebhook(url)
