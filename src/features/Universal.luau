@@ -1,20 +1,4 @@
--- Universal features available in every game.
---
--- Bugs fixed from the original:
---  * Walkspeed/JumpPower were reset to hard-coded values (240/16, 100/50) on
---    toggle-off, clobbering whatever the game had set. They now restore the
---    value that was actually in effect;
---  * boosts were silently lost on respawn - enabled boosts are re-applied to
---    the new character;
---  * Fly zeroed AssemblyLinearVelocity every frame and left the humanoid in
---    PlatformStand, so turning it off dropped the player out of the sky with no
---    control. State is now restored properly;
---  * NoClip never restored collision - it now remembers each part's original
---    CanCollide and puts it back;
---  * Rejoin passed the job id as Teleport's `customLoadingScreen` argument, so
---    it always dropped you into a random server. It uses TeleportAsync with
---    ServerInstanceId now;
---  * "Teleport to Spawn" only searched the direct children of workspace.
+-- Universal features: movement hacks, flight, lighting, graphics optimization, server utils.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -23,20 +7,23 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
+local Lighting = game:GetService("Lighting")
 
 local DEFAULT_WALKSPEED = 16
 local DEFAULT_JUMP_POWER = 50
-local FAST_WALKSPEED = 240
-local FAST_JUMP_POWER = 100
-local FLY_SPEED_DEFAULT = 50
+local FLY_SPEED_DEFAULT = 60
 local RESPAWN_GRACE = 0.75
 
 return function(hub, tab, cleanup)
 	local state = {
 		walkSpeed = DEFAULT_WALKSPEED,
+		targetWalkSpeed = 100,
 		jumpPower = DEFAULT_JUMP_POWER,
+		targetJumpPower = 100,
 		useJumpPower = false,
 		flySpeed = FLY_SPEED_DEFAULT,
+		fullbrightEnabled = false,
+		infJumpEnabled = false,
 	}
 	local reapply = {}
 
@@ -48,9 +35,11 @@ return function(hub, tab, cleanup)
 		return hum
 	end
 
-	-- ---------------------------------------------------------------- walkspeed
+	-- ------------------------------------------------------------- MOVEMENT
+	tab:AddSection("Movement & Physics")
+
 	local walkSpeedEnabled = false
-	tab:AddToggle("Walkspeed " .. FAST_WALKSPEED, false, function(on)
+	tab:AddToggle("Custom Walkspeed", false, function(on)
 		walkSpeedEnabled = on
 		local hum = humanoid()
 		if not hum then
@@ -58,27 +47,36 @@ return function(hub, tab, cleanup)
 		end
 		if on then
 			state.walkSpeed = hum.WalkSpeed
-			hum.WalkSpeed = FAST_WALKSPEED
-			hub:notify("Walkspeed set to " .. FAST_WALKSPEED, "success")
+			hum.WalkSpeed = state.targetWalkSpeed
+			hub:notify("Walkspeed set to " .. state.targetWalkSpeed, "success")
 		else
 			hum.WalkSpeed = state.walkSpeed
-			hub:notify("Walkspeed restored to " .. state.walkSpeed, "info")
+			hub:notify("Walkspeed restored", "info")
 		end
 	end)
+
+	tab:AddSlider("Walkspeed Multiplier", 16, 300, 100, function(value)
+		state.targetWalkSpeed = value
+		if walkSpeedEnabled then
+			local hum = humanoid(true)
+			if hum then
+				hum.WalkSpeed = value
+			end
+		end
+	end)
+
 	table.insert(reapply, function()
 		if not walkSpeedEnabled then
 			return
 		end
 		local hum = Util.getHumanoid()
 		if hum then
-			state.walkSpeed = DEFAULT_WALKSPEED
-			hum.WalkSpeed = FAST_WALKSPEED
+			hum.WalkSpeed = state.targetWalkSpeed
 		end
 	end)
 
-	-- --------------------------------------------------------------- jump power
 	local jumpPowerEnabled = false
-	tab:AddToggle("Jump Power " .. FAST_JUMP_POWER, false, function(on)
+	tab:AddToggle("Custom Jump Power", false, function(on)
 		jumpPowerEnabled = on
 		local hum = humanoid()
 		if not hum then
@@ -88,14 +86,26 @@ return function(hub, tab, cleanup)
 			state.jumpPower = hum.JumpPower
 			state.useJumpPower = hum.UseJumpPower
 			hum.UseJumpPower = true
-			hum.JumpPower = FAST_JUMP_POWER
-			hub:notify("Jump power set to " .. FAST_JUMP_POWER, "success")
+			hum.JumpPower = state.targetJumpPower
+			hub:notify("Jump power set to " .. state.targetJumpPower, "success")
 		else
 			hum.JumpPower = state.jumpPower
 			hum.UseJumpPower = state.useJumpPower
 			hub:notify("Jump power restored", "info")
 		end
 	end)
+
+	tab:AddSlider("Jump Power Multiplier", 50, 350, 100, function(value)
+		state.targetJumpPower = value
+		if jumpPowerEnabled then
+			local hum = humanoid(true)
+			if hum then
+				hum.UseJumpPower = true
+				hum.JumpPower = value
+			end
+		end
+	end)
+
 	table.insert(reapply, function()
 		if not jumpPowerEnabled then
 			return
@@ -103,11 +113,38 @@ return function(hub, tab, cleanup)
 		local hum = Util.getHumanoid()
 		if hum then
 			hum.UseJumpPower = true
-			hum.JumpPower = FAST_JUMP_POWER
+			hum.JumpPower = state.targetJumpPower
 		end
 	end)
 
-	-- -------------------------------------------------------------------- fly
+	-- Infinite Jump
+	local infJumpConn = nil
+	tab:AddToggle("Infinite Jump (Space in air)", false, function(on)
+		state.infJumpEnabled = on
+		if on then
+			if not infJumpConn then
+				infJumpConn = UserInputService.JumpRequest:Connect(function()
+					if state.infJumpEnabled then
+						local hum = humanoid(true)
+						if hum then
+							hum:ChangeState(Enum.HumanoidStateType.Jumping)
+						end
+					end
+				end)
+			end
+			hub:notify("Infinite Jump enabled", "success")
+		else
+			hub:notify("Infinite Jump disabled", "info")
+		end
+	end)
+	cleanup.track(function()
+		if infJumpConn then
+			infJumpConn:Disconnect()
+			infJumpConn = nil
+		end
+	end)
+
+	-- -------------------------------------------------------------------- FLY
 	local fly = { active = false, bodyVelocity = nil, heartbeat = nil }
 
 	local function stopFly(quiet)
@@ -191,7 +228,6 @@ return function(hub, tab, cleanup)
 				return
 			end
 
-			-- The character can respawn mid-flight; keep the mover attached.
 			local currentRoot = Util.getRootPart()
 			if not currentRoot then
 				return
@@ -215,7 +251,7 @@ return function(hub, tab, cleanup)
 		state.flySpeed = value
 	end)
 
-	-- ------------------------------------------------------------------ noclip
+	-- ---------------------------------------------------------------- NOCLIP
 	local noclip = { connection = nil, saved = {} }
 
 	local function stopNoclip(quiet)
@@ -239,7 +275,7 @@ return function(hub, tab, cleanup)
 		stopNoclip(true)
 	end)
 
-	tab:AddToggle("NoClip", false, function(on)
+	tab:AddToggle("NoClip (Walk Through Walls)", false, function(on)
 		if not on then
 			stopNoclip()
 			return
@@ -262,7 +298,58 @@ return function(hub, tab, cleanup)
 		hub:notify("NoClip enabled", "success")
 	end)
 
-	-- ------------------------------------------------------------- teleporting
+	-- ------------------------------------------------------------- LIGHTING
+	tab:AddSection("Visuals & Lighting")
+
+	local originalBrightness = Lighting.Brightness
+	local originalShadows = Lighting.GlobalShadows
+	local originalFog = Lighting.FogEnd
+
+	tab:AddToggle("Fullbright (See In Dark)", false, function(on)
+		state.fullbrightEnabled = on
+		pcall(function()
+			if on then
+				Lighting.Brightness = 2
+				Lighting.GlobalShadows = false
+				Lighting.FogEnd = 9e9
+				hub:notify("Fullbright enabled", "success")
+			else
+				Lighting.Brightness = originalBrightness
+				Lighting.GlobalShadows = originalShadows
+				Lighting.FogEnd = originalFog
+				hub:notify("Fullbright restored", "info")
+			end
+		end)
+	end)
+
+	-- --------------------------------------------------------- PERFORMANCE
+	tab:AddSection("Performance & Optimization")
+
+	tab:AddButton("Boost FPS / Low Graphics Mode", function()
+		pcall(function()
+			for _, v in ipairs(workspace:GetDescendants()) do
+				if v:IsA("BasePart") then
+					v.Material = Enum.Material.SmoothPlastic
+					v.Reflectance = 0
+				elseif v:IsA("Decal") or v:IsA("Texture") then
+					v.Transparency = 1
+				elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+					v.Enabled = false
+				end
+			end
+			Lighting.GlobalShadows = false
+			for _, v in ipairs(Lighting:GetChildren()) do
+				if v:IsA("PostEffect") then
+					v.Enabled = false
+				end
+			end
+			hub:notify("Low graphics applied! FPS boosted.", "success")
+		end)
+	end)
+
+	-- ------------------------------------------------------------- UTILITIES
+	tab:AddSection("Server Utilities")
+
 	tab:AddButton("Teleport to Spawn", function()
 		local root = Util.getRootPart()
 		if not root then
@@ -270,7 +357,6 @@ return function(hub, tab, cleanup)
 			return
 		end
 
-		-- Recursive: many games nest spawns inside a folder.
 		local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
 		if not spawn then
 			hub:notify("No spawn location found", "error")
@@ -290,15 +376,12 @@ return function(hub, tab, cleanup)
 		end)
 
 		if ok then
-			hub:notify("Rejoining this server...", "info")
+			hub:notify("Rejoining server...", "info")
 		else
 			hub:notify("Rejoin failed: " .. tostring(err), "error")
 		end
 	end, true)
 
-	tab:AddLabel("Universal features work in any game. Fly and NoClip persist until you turn them off or close the hub.", true)
-
-	-- Re-apply enabled boosts when the character respawns or the hub is closed.
 	cleanup.track(Players.LocalPlayer.CharacterAdded:Connect(function()
 		Util.delay(RESPAWN_GRACE, function()
 			for _, fn in ipairs(reapply) do
