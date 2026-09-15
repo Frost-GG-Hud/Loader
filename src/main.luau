@@ -675,6 +675,8 @@ local keyState = {
     ServerKey = "",
 }
 
+local buildHub
+
 local function buildKeyGui()
     print("[Frost] Building key GUI")
     local screenGui = Instance.new("ScreenGui")
@@ -904,7 +906,7 @@ local function buildKeyGui()
     end)
 end
 
-local function buildHub()
+function buildHub()
     print("[Frost] Building hub")
     local supportedGames = {
         {
