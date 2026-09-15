@@ -1,54 +1,33 @@
 # Frost
 
-Roblox hub with a key-gated GUI. The key UI pops up first; valid keys unlock a feature hub that auto-detects the current game. Keys are managed and shown by a Discord bot via `/key`.
+Roblox hub with a key-gated GUI. The key UI pops up first; valid keys unlock a feature hub with Universal features plus per-game features you load from the Information tab. Keys are managed and shown by a Discord bot via `/key`.
 
 ## Layout
 
 | Path | Purpose |
 | ---- | ------- |
-| `bot.py` | Discord bot with role-gated `/key` (view key embed) and `/setkey` (rotate key) |
-| `keys.json` | Single source of truth for the current free key (read by bot AND by the hub) |
-| `src/main.luau` | Full hub: key prompt GUI, hub window, game auto-detect, universal features |
+| `bot.py` | Discord bot with role-gated `/key` (view key embed), `/script` (get loader line), and `/setkey` (rotate key) |
+| `keys.json` | Single source of truth for the current free key (read by bot and by the hub) |
+| `src/main.luau` | Full hub: key prompt GUI, hub window, Universal tab, Information tab (game selector), Steal An Egg features |
 | `src/Loader.luau` | Paste this line into your executor |
-| `server.py` | Optional tiny web server that serves `/api/script` + `keys.json` from your own domain (no GitHub needed) |
+| `push_to_github.py` | Pushes all local files straight to the GitHub repo via the API |
 
-## 1. Host the script
+## 1. Host the script on GitHub
 
-### Option A: your own website (no GitHub needed)
-
-1. Deploy this folder to **Render**. Create a Web Service from the repository; `render.yaml` selects `python server.py` automatically.
-2. In the Render service environment variables, set:
-   - `SITE_ADMIN_TOKEN` to a long random value.
-   - `KEY_FILE` to `/tmp/keys.json` only if the service filesystem is ephemeral and you accept resetting the key on restart; otherwise use persistent storage.
-3. Copy the service URL into your local `.env` as `SITE_URL` and use the same `SITE_ADMIN_TOKEN` there.
-4. The loadstring then becomes:
-   ```lua
-   loadstring(game:HttpGet("https://YOUR-SITE.onrender.com/api/script"))()
-   ```
-5. `/setkey` then pushes the new key straight to the site; the hub picks it up live.
-
-For local testing, run:
-
-```powershell
-python server.py
-```
-
-To make that local server reachable from Roblox, expose port `8000` with a tunnel provider, then use:
-
-```lua
-loadstring(game:HttpGet("https://YOUR-TUNNEL-DOMAIN/api/script"))()
-```
-
-Keep `SITE_ADMIN_TOKEN` set locally. The server now rejects all key updates when the token is missing instead of leaving the write endpoint open.
-
-### Option B: GitHub raw links (needs a working GitHub account)
-
-1. Create a GitHub repo, push this folder to branch `main`.
+1. Create a GitHub repo (or use the existing `Frost-GG-Hud/Loader`) and push this folder to branch `main`.
 2. The public raw URLs used by the hub:
    - `https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/src/main.luau`
    - `https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/keys.json`
-3. If you picked a different repo/owner/branch, edit `Config` at the top of `src/main.luau` and `GITHUB_REPO`/`GITHUB_BRANCH` in `.env`.
+3. If you use a different repo/owner/branch, edit `Config` at the top of `src/main.luau` and `GITHUB_REPO`/`GITHUB_BRANCH` in `.env`.
 4. Make sure `.env` is NOT pushed (it is in `.gitignore`).
+
+To publish any local change (bot code, keys, the hub script), just run:
+
+```powershell
+python push_to_github.py
+```
+
+It reads `GITHUB_TOKEN` from `.env` and pushes every tracked file straight to the repo via the GitHub API — no `git` CLI required.
 
 ## 2. Run the Discord bot
 
@@ -69,49 +48,40 @@ python bot.py
 `.env` notes:
 
 - `DISCORD_TOKEN` — your bot token. Keep it secret. Anyone who sees it can control the bot.
-- `ALLOWED_ROLE_ID` — role allowed to run `/key` and `/setkey`.
+- `ALLOWED_ROLE_ID` — role allowed to run `/key`, `/script`, and `/setkey`.
 - `GUILD_ID` — (recommended) server ID so slash commands register instantly.
-- `SITE_URL` + `SITE_ADMIN_TOKEN` — optional. When set, `/script` prints the short `loadstring(game:HttpGet("<SITE_URL>/api/script"))()` line, and `/setkey` pushes the new key straight to the site so the hub stays live instantly.
-- `GITHUB_TOKEN` + `GITHUB_REPO`/`GITHUB_BRANCH` — optional (only for the GitHub raw links flow).
+- `GITHUB_TOKEN` + `GITHUB_REPO`/`GITHUB_BRANCH` — needed so `/setkey` can auto-push the new key to GitHub.
 
-Users with the role run `/key` to get an embed showing the current key (visible to everyone in the channel). `/setkey <newkey>` rotates it.
+Users with the role run `/key` to get an embed showing the current key (visible to everyone in the channel). `/script` gives the exact loadstring line to paste into an executor. `/setkey <newkey>` rotates the key and pushes it to GitHub.
 
 ## 3. In-game
 
-Paste into your executor (pick whichever path you set up above):
+Paste into your executor:
 
-**Website (recommended if you have no GitHub):**
-```lua
-loadstring(game:HttpGet("https://YOUR-SITE.onrender.com/api/script"))()
-```
-
-**GitHub raw:**
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/src/Loader.luau"))()
 ```
 
-Flow: key request GUI appears first -> enter the key from `/key` -> hub opens. It reads the current key live (from the site or GitHub), so rotating a key immediately invalidates old ones.
+Flow: key request GUI appears first -> enter the key from `/key` -> hub opens on the **Information** tab -> click **Load Steal An Egg Features** (or stay on **Universal**). It reads the current key live from GitHub, so rotating a key immediately invalidates old ones.
 
 ## Adding games
 
 In `src/main.luau`, inside `buildHub`, find the `supportedGames` table. Add an entry:
 
 ```lua
-{
-    Name = "Your Game",
-    PlaceId = 123456789,           -- from the game page URL
-    TabLabel = "Tab short name",
-    Load = function(hub, tab)
+supportedGames["Your Game"] = {
+    PlaceId = 123456789, -- from the game page URL
+    Features = function(tab)
         tab:AddButton("My Feature", function() print("hi") end)
         tab:AddToggle("My Toggle", false, function(on) end)
     end,
-},
+}
 ```
 
-When a player joins that game the hub title shows the game name and loads its tab. Unknown games get an "Unsupported" tab listing all supported PlaceIds.
+Then add a button in the Information tab that calls `gameObj.Features(gameTab)` similar to the existing "Load Steal An Egg Features" button.
 
 ## Warning
 
-- Never commit `.env` — it contains your bot token.
+- Never commit `.env` — it contains your bot token and GitHub token.
 - This is client-side scripting that violates Roblox ToS; accounts using it can be banned.
-- If your token was ever shared (e.g. pasted in a chat), regenerate it immediately in the Discord developer portal.
+- If your token was ever shared (e.g. pasted in a chat), regenerate it immediately in the Discord developer portal / GitHub settings.
