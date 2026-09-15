@@ -63,6 +63,8 @@ local function iconButton(config)
 	return button, bars
 end
 
+local Header = {}
+
 function Header.new(config)
 	local header = Builder.frame({
 		Name = "Header",
@@ -90,7 +92,7 @@ function Header.new(config)
 
 	local titleLabel = Builder.label({
 		Name = "Title",
-		Size = UDim2.new(1, -130, 0, 20),
+		Size = UDim2.new(0, 160, 0, 20),
 		Position = UDim2.fromOffset(44, 13),
 		Font = Theme.FontBold,
 		TextSize = 15,
@@ -103,7 +105,7 @@ function Header.new(config)
 
 	local subtitleLabel = Builder.label({
 		Name = "Subtitle",
-		Size = UDim2.new(1, -130, 0, 14),
+		Size = UDim2.new(0, 180, 0, 14),
 		Position = UDim2.fromOffset(44, 31),
 		Font = Theme.FontRegular,
 		TextSize = 10,
@@ -113,6 +115,46 @@ function Header.new(config)
 		ZIndex = 7,
 		Parent = header,
 	})
+
+	local statsLabel = Builder.label({
+		Name = "StatsLabel",
+		Size = UDim2.new(0, 120, 0, 20),
+		Position = UDim2.new(1, -(BUTTON_SIZE * 2 + 155), 0, 16),
+		Font = Theme.FontBold,
+		TextSize = 11,
+		Text = "FPS: -- | MS: --",
+		TextColor3 = Theme.Success,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = 7,
+		Parent = header,
+	})
+
+	-- Live FPS and Ping monitor
+	local RunService = game:GetService("RunService")
+	local Stats = game:GetService("Stats")
+	local lastTime = os.clock()
+	local frames = 0
+	local statConn = RunService.RenderStepped:Connect(function()
+		frames = frames + 1
+		local now = os.clock()
+		if now - lastTime >= 1 then
+			local fps = math.round(frames / (now - lastTime))
+			local ping = 0
+			pcall(function()
+				ping = math.round(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+			end)
+			statsLabel.Text = string.format("FPS: %d | MS: %d", fps, ping)
+			if fps < 30 then
+				statsLabel.TextColor3 = Theme.Danger
+			elseif fps < 50 then
+				statsLabel.TextColor3 = Theme.Warning
+			else
+				statsLabel.TextColor3 = Theme.Success
+			end
+			frames = 0
+			lastTime = now
+		end
+	end)
 
 	local minimizeGlyph, restoreGlyph
 	iconButton({
@@ -171,9 +213,19 @@ function Header.new(config)
 		frame = header,
 		titleLabel = titleLabel,
 		subtitleLabel = subtitleLabel,
+		statsLabel = statsLabel,
+		destroy = function()
+			if statConn then
+				statConn:Disconnect()
+				statConn = nil
+			end
+		end,
 		setMinimized = function(minimized)
 			if restoreGlyph then
 				restoreGlyph.Visible = minimized
+			end
+			if statsLabel then
+				statsLabel.Visible = not minimized
 			end
 		end,
 	}
