@@ -19,9 +19,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "Frost-GG-Hud/Loader")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
-SITE_URL = os.getenv("SITE_URL", "").rstrip("/")
-SITE_ADMIN_TOKEN = os.getenv("SITE_ADMIN_TOKEN", "")
-
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -86,10 +83,7 @@ async def script_command(interaction: discord.Interaction):
         await interaction.response.send_message(embed=not_allowed_embed(), ephemeral=True)
         return
 
-    if SITE_URL:
-        script_url = f"{SITE_URL}/api/script"
-    else:
-        script_url = github_raw_url("src/Loader.luau")
+    script_url = github_raw_url("src/Loader.luau")
     loader = f'loadstring(game:HttpGet("{script_url}"))()'
     embed = discord.Embed(
         title="\U0001F916 Frost Loader Script",
@@ -107,23 +101,7 @@ async def setkey_command(interaction: discord.Interaction, key: str):
         return
 
     save_key(key)
-    pushed_to = []
-
-    if SITE_URL and SITE_ADMIN_TOKEN:
-        try:
-            import requests
-
-            r = requests.post(
-                f"{SITE_URL}/api/setkey",
-                json={"key": key},
-                headers={"X-Admin-Token": SITE_ADMIN_TOKEN},
-                timeout=15,
-            )
-            if r.status_code not in (200, 201):
-                raise RuntimeError(f"Site API {r.status_code}: {r.text[:200]}")
-            pushed_to.append("website")
-        except Exception:
-            pass
+    pushed_to_github = False
 
     if GITHUB_TOKEN:
         try:
@@ -148,20 +126,20 @@ async def setkey_command(interaction: discord.Interaction, key: str):
             r = requests.put(url, headers=headers, json=payload, timeout=60)
             if r.status_code not in (200, 201):
                 raise RuntimeError(f"GitHub API {r.status_code}: {r.text[:200]}")
-            pushed_to.append("GitHub")
+            pushed_to_github = True
         except Exception:
             pass
 
-    if pushed_to:
+    if pushed_to_github:
         embed = discord.Embed(
             title="\U00002705 Key Published",
-            description=f"New key saved and pushed to {', '.join(pushed_to)} so the hub stays in sync:\n\n```\n{key}\n```",
+            description=f"New key saved and pushed to GitHub so the hub stays in sync:\n\n```\n{key}\n```",
             color=discord.Color.green(),
         )
     else:
         embed = discord.Embed(
             title="\U000026A0 Key Saved Locally",
-            description=f"Use `SITE_URL`/`SITE_ADMIN_TOKEN` or `GITHUB_TOKEN` in `.env` to push it live.\n```\n{key}\n```\nCommit `keys.json` manually.",
+            description=f"Set `GITHUB_TOKEN` in `.env` to push it live automatically.\n```\n{key}\n```\nRun `python push_to_github.py` manually to publish it.",
             color=discord.Color.orange(),
         )
 
