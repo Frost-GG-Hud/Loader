@@ -67,7 +67,14 @@ local function normalizeKey(key)
 end
 
 local function getCharacter()
-    return LocalPlayer.Character or (LocalPlayer.CharacterAdded and LocalPlayer.CharacterAdded:Wait(), LocalPlayer.Character)
+    local char = LocalPlayer.Character
+    if not char then
+        pcall(function()
+            LocalPlayer.CharacterAdded:Wait()
+        end)
+        char = LocalPlayer.Character
+    end
+    return char
 end
 
 local function getHumanoid(char)
@@ -92,15 +99,18 @@ local function drawCircle(label, parent, r, color)
 end
 
 local Theme = {
-    Background = Color3.fromRGB(18, 18, 24),
-    Sidebar = Color3.fromRGB(24, 24, 32),
-    Card = Color3.fromRGB(31, 31, 42),
-    Accent = Color3.fromRGB(94, 129, 255),
-    AccentDark = Color3.fromRGB(70, 100, 230),
-    TextMain = Color3.fromRGB(240, 240, 245),
-    TextDim = Color3.fromRGB(150, 150, 165),
-    Danger = Color3.fromRGB(235, 90, 90),
-    Success = Color3.fromRGB(90, 200, 130),
+    Background = Color3.fromRGB(12, 16, 18),
+    Window = Color3.fromRGB(20, 24, 29),
+    Surface = Color3.fromRGB(28, 34, 41),
+    SurfaceAlt = Color3.fromRGB(35, 42, 49),
+    Card = Color3.fromRGB(30, 38, 45),
+    Accent = Color3.fromRGB(112, 209, 170),
+    AccentDark = Color3.fromRGB(72, 153, 117),
+    TextMain = Color3.fromRGB(242, 245, 247),
+    TextDim = Color3.fromRGB(153, 165, 176),
+    Border = Color3.fromRGB(56, 64, 72),
+    Danger = Color3.fromRGB(235, 94, 94),
+    Success = Color3.fromRGB(94, 201, 146),
 }
 
 local Lib = {}
@@ -108,7 +118,7 @@ local Lib = {}
 function Lib.CreateWindow(opts)
     opts = opts or {}
     local title = opts.Title or "Frost"
-    local size = opts.Size or Vector2.new(560, 400)
+    local size = opts.Size or Vector2.new(430, 360)
     local accent = opts.Accent or Theme.Accent
 
     local screenGui = Instance.new("ScreenGui")
@@ -125,107 +135,130 @@ function Lib.CreateWindow(opts)
         screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
 
+    local ambient = Instance.new("Frame")
+    ambient.BackgroundColor3 = Color3.fromRGB(95, 129, 112)
+    ambient.BackgroundTransparency = 0.48
+    ambient.Size = UDim2.new(1, 0, 1, 0)
+    ambient.BorderSizePixel = 0
+    ambient.Parent = screenGui
+
     local window = Instance.new("Frame")
     window.Name = "Window"
-    window.Size = UDim2.fromOffset(size.X, size.Y)
-    window.Position = UDim2.fromScale(0.5, 0.5)
-    window.AnchorPoint = Vector2.new(0.5, 0.5)
-    window.BackgroundColor3 = Theme.Background
+    window.BackgroundColor3 = Theme.Window
     window.BorderSizePixel = 0
+    window.AnchorPoint = Vector2.new(0, 0)
+    window.ZIndex = 4
     window.Parent = screenGui
 
+    local vs = workspace.CurrentCamera.ViewportSize
+    window.Size = UDim2.fromOffset(size.X, size.Y)
+    window.Position = UDim2.fromOffset(
+        math.max(24, (vs.X - size.X) / 2),
+        math.max(40, (vs.Y - size.Y) / 2)
+    )
+
     local winCorner = Instance.new("UICorner")
-    winCorner.CornerRadius = UDim.new(0, 12)
+    winCorner.CornerRadius = UDim.new(0, 16)
     winCorner.Parent = window
 
     local winStroke = Instance.new("UIStroke")
-    winStroke.Color = accent
-    winStroke.Thickness = 1.5
-    winStroke.Transparency = 0.4
+    winStroke.Color = Color3.fromRGB(120, 130, 138)
+    winStroke.Thickness = 1.2
+    winStroke.Transparency = 0.25
     winStroke.Parent = window
 
-    local winShadow = Instance.new("ImageLabel")
-    winShadow.Name = "Shadow"
-    winShadow.BackgroundTransparency = 1
-    winShadow.Size = UDim2.new(1, 24, 1, 24)
-    winShadow.Position = UDim2.fromOffset(-12, -12)
-    winShadow.Image = "rbxassetid://5028857084"
-    winShadow.ImageColor3 = Color3.new(0, 0, 0)
-    winShadow.ImageTransparency = 0.6
-    winShadow.ScaleType = Enum.ScaleType.Slice
-    winShadow.SliceCenter = Rect.new(24, 24, 276, 276)
-    winShadow.ZIndex = 0
-    winShadow.Parent = window
+    local shadow = Instance.new("ImageLabel")
+    shadow.BackgroundTransparency = 1
+    shadow.Size = UDim2.new(1, 28, 1, 28)
+    shadow.Position = UDim2.fromOffset(-14, -14)
+    shadow.Image = "rbxassetid://131604521"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.8
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+    shadow.ZIndex = 0
+    shadow.Parent = window
 
-    local logoCircle = drawCircle("_Logo", window, 10, accent)
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 54)
+    header.BackgroundColor3 = Theme.Surface
+    header.BorderSizePixel = 0
+    header.Parent = window
+
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 16)
+    headerCorner.Parent = header
+
+    local headerGradient = Instance.new("UIGradient")
+    headerGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Surface),
+        ColorSequenceKeypoint.new(1, Theme.Window),
+    })
+    headerGradient.Rotation = 90
+    headerGradient.Parent = header
+
+    local logo = drawCircle("_Logo", header, 9, accent)
+    logo.Position = UDim2.fromOffset(18, 14)
 
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "Title"
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Size = UDim2.new(0.6, -40, 0, 32)
-    titleLabel.Position = UDim2.fromOffset(28, 0)
+    titleLabel.Size = UDim2.new(1, -110, 0, 22)
+    titleLabel.Position = UDim2.fromOffset(38, 15)
     titleLabel.Text = title
     titleLabel.TextColor3 = Theme.TextMain
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextSize = 17
-    titleLabel.Parent = window
+    titleLabel.TextSize = 15
+    titleLabel.Parent = header
 
-    local titlebar = Instance.new("TextButton")
-    titlebar.Name = "_DragBar"
-    titlebar.BackgroundTransparency = 1
-    titlebar.Size = UDim2.new(1, 0, 0, 36)
-    titlebar.Text = ""
-    titlebar.ZIndex = 50
-    titlebar.Parent = window
+    local metaLabel = Instance.new("TextLabel")
+    metaLabel.BackgroundTransparency = 1
+    metaLabel.Size = UDim2.new(1, -110, 0, 16)
+    metaLabel.Position = UDim2.fromOffset(38, 31)
+    metaLabel.Text = "Premium script hub"
+    metaLabel.TextColor3 = Theme.TextDim
+    metaLabel.TextXAlignment = Enum.TextXAlignment.Left
+    metaLabel.Font = Enum.Font.Gotham
+    metaLabel.TextSize = 10
+    metaLabel.Parent = header
 
     local closeButton = Instance.new("TextButton")
     closeButton.Name = "Close"
-    closeButton.Size = UDim2.fromOffset(26, 26)
-    closeButton.Position = UDim2.new(1, -32, 0, 5)
+    closeButton.Size = UDim2.fromOffset(20, 20)
+    closeButton.Position = UDim2.new(1, -28, 0, 17)
     closeButton.BackgroundTransparency = 1
-    closeButton.Text = "x"
+    closeButton.Text = "×"
     closeButton.TextColor3 = Theme.TextDim
     closeButton.Font = Enum.Font.GothamBold
-    closeButton.TextSize = 16
-    closeButton.ZIndex = 60
-    closeButton.Parent = window
+    closeButton.TextSize = 18
+    closeButton.Parent = header
     closeButton.MouseButton1Click:Connect(function()
         window.Visible = not window.Visible
     end)
 
-    local sidebar = Instance.new("Frame")
-    sidebar.Name = "Sidebar"
-    sidebar.Size = UDim2.new(0, 150, 1, -36)
-    sidebar.Position = UDim2.fromOffset(0, 36)
-    sidebar.BackgroundColor3 = Theme.Sidebar
-    sidebar.BorderSizePixel = 0
-    sidebar.Parent = window
-
-    local sideCorner = Instance.new("UICorner")
-    sideCorner.CornerRadius = UDim.new(0, 12)
-    sideCorner.Parent = sidebar
-
     local tabList = Instance.new("ScrollingFrame")
     tabList.Name = "Tabs"
-    tabList.Size = UDim2.new(1, 0, 1, 0)
+    tabList.Size = UDim2.new(1, -30, 0, 36)
+    tabList.Position = UDim2.fromOffset(15, 60)
     tabList.BackgroundTransparency = 1
     tabList.BorderSizePixel = 0
     tabList.ScrollBarThickness = 0
-    tabList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    tabList.AutomaticCanvasSize = Enum.AutomaticSize.X
     tabList.CanvasSize = UDim2.new(0, 0, 0, 0)
-    tabList.Parent = sidebar
+    tabList.Parent = window
 
     local contentArea = Instance.new("Frame")
     contentArea.Name = "Content"
-    contentArea.Size = UDim2.new(1, -170, 1, -56)
-    contentArea.Position = UDim2.fromOffset(160, 48)
+    contentArea.Size = UDim2.new(1, -18, 1, -106)
+    contentArea.Position = UDim2.fromOffset(9, 98)
     contentArea.BackgroundTransparency = 1
     contentArea.ClipsDescendants = true
     contentArea.Parent = window
 
     local contentBG = Instance.new("Frame")
-    contentBG.BackgroundColor3 = Theme.Card
+    contentBG.BackgroundColor3 = Theme.Surface
     contentBG.BorderSizePixel = 0
     contentBG.Size = UDim2.new(1, 0, 1, 0)
     contentBG.Parent = contentArea
@@ -234,12 +267,12 @@ function Lib.CreateWindow(opts)
     bgCorner.Parent = contentBG
 
     local dragObject
-    titlebar.InputBegan:Connect(function(input)
+    header.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragObject = input
         end
     end)
-    titlebar.InputEnded:Connect(function(input)
+    header.InputEnded:Connect(function(input)
         if input == dragObject then
             dragObject = nil
         end
@@ -262,16 +295,18 @@ function Lib.CreateWindow(opts)
 
         local btn = Instance.new("TextButton")
         btn.Name = name
-        btn.Size = UDim2.new(1, 0, 0, 32)
-        btn.Position = UDim2.fromOffset(0, (tabIndex - 1) * 34)
-        btn.BackgroundColor3 = Theme.Sidebar
+        btn.Size = UDim2.new(0, 86, 0, 30)
+        btn.Position = UDim2.fromOffset((tabIndex - 1) * 92, 0)
+        btn.BackgroundColor3 = Theme.SurfaceAlt
         btn.BorderSizePixel = 0
         btn.Text = name
         btn.TextColor3 = Theme.TextDim
         btn.Font = Enum.Font.Gotham
-        btn.TextSize = 14
-        btn.ZIndex = 5
+        btn.TextSize = 12
         btn.Parent = tabList
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 8)
+        btnCorner.Parent = btn
 
         local page = Instance.new("ScrollingFrame")
         page.Name = name
@@ -284,96 +319,104 @@ function Lib.CreateWindow(opts)
         page.Visible = false
         page.Parent = contentArea
 
-        local spacing = 0
+        local spacing = 10
         local tab = {
             _btn = btn,
             _page = page,
             _accent = accent,
             AddLabel = function(self, text, dim)
-                spacing = spacing + 4
+                spacing = spacing + 6
                 local lbl = Instance.new("TextLabel")
                 lbl.BackgroundTransparency = 1
-                lbl.Size = UDim2.new(1, -20, 0, 20)
-                lbl.Position = UDim2.fromOffset(10, spacing)
+                lbl.Size = UDim2.new(1, -16, 0, 18)
+                lbl.Position = UDim2.fromOffset(12, spacing)
                 lbl.Text = text
                 lbl.TextColor3 = dim and Theme.TextDim or Theme.TextMain
                 lbl.Font = Enum.Font.Gotham
-                lbl.TextSize = 13
+                lbl.TextSize = 12
                 lbl.TextXAlignment = Enum.TextXAlignment.Left
                 lbl.Parent = page
-                spacing = spacing + 20
+                spacing = spacing + 18
             end,
             AddButton = function(self, text, callback, danger)
-                spacing = spacing + 6
+                spacing = spacing + 8
                 local card = Instance.new("Frame")
                 card.BackgroundColor3 = Theme.Card
                 card.BorderSizePixel = 0
-                card.Size = UDim2.new(1, -32, 0, 36)
-                card.Position = UDim2.fromOffset(16, spacing)
+                card.Size = UDim2.new(1, -12, 0, 39)
+                card.Position = UDim2.fromOffset(6, spacing)
                 card.Parent = page
                 local cardCorner = Instance.new("UICorner")
-                cardCorner.CornerRadius = UDim.new(0, 8)
+                cardCorner.CornerRadius = UDim.new(0, 9)
                 cardCorner.Parent = card
-                local b = Instance.new("TextButton")
-                b.Text = text
-                b.BackgroundTransparency = 1
-                b.Size = UDim2.new(1, 0, 1, 0)
-                b.Font = Enum.Font.GothamBold
-                b.TextSize = 14
-                b.TextColor3 = danger and Theme.Danger or Theme.TextMain
-                b.Parent = card
-                local fill = Instance.new("Frame")
-                fill.BackgroundColor3 = danger and Theme.Danger or accent
-                fill.BorderSizePixel = 0
-                fill.Size = UDim2.new(1, 0, 0, 3)
-                fill.Position = UDim2.new(0, 0, 1, -3)
-                fill.Visible = false
-                fill.Parent = card
-                local fillCorner = Instance.new("UICorner")
-                fillCorner.CornerRadius = UDim.new(0, 4)
-                fillCorner.Parent = fill
-                b.MouseEnter:Connect(function()
-                    TweenService:Create(fill, TweenInfo.new(0.12), { Visible = true }):Play()
-                end)
-                b.MouseLeave:Connect(function()
-                    TweenService:Create(fill, TweenInfo.new(0.12), { Visible = false }):Play()
-                end)
-                b.MouseButton1Click:Connect(function()
+
+                local btnLabel = Instance.new("TextButton")
+                btnLabel.BackgroundTransparency = 1
+                btnLabel.Size = UDim2.new(1, -18, 1, 0)
+                btnLabel.Position = UDim2.fromOffset(12, 0)
+                btnLabel.Text = text
+                btnLabel.TextColor3 = danger and Theme.Danger or Theme.TextMain
+                btnLabel.Font = Enum.Font.GothamSemibold
+                btnLabel.TextSize = 13
+                btnLabel.TextXAlignment = Enum.TextXAlignment.Left
+                btnLabel.Parent = card
+
+                local accentBar = Instance.new("Frame")
+                accentBar.BackgroundColor3 = danger and Theme.Danger or accent
+                accentBar.BorderSizePixel = 0
+                accentBar.Size = UDim2.new(0, 0, 0, 3)
+                accentBar.Position = UDim2.new(0, 0, 1, -3)
+                accentBar.Parent = card
+                local barCorner = Instance.new("UICorner")
+                barCorner.CornerRadius = UDim.new(0, 3)
+                barCorner.Parent = accentBar
+
+                btnLabel.MouseButton1Click:Connect(function()
                     if callback then
                         pcall(function()
                             callback()
                         end)
                     end
                 end)
-                spacing = spacing + 42
+
+                local hoverTween = TweenService:Create(accentBar, TweenInfo.new(0.12), { Size = UDim2.new(1, 0, 0, 3) })
+                btnLabel.MouseEnter:Connect(function()
+                    hoverTween:Play()
+                end)
+                btnLabel.MouseLeave:Connect(function()
+                    hoverTween:Cancel()
+                    accentBar.Size = UDim2.new(0, 0, 0, 3)
+                end)
+
+                spacing = spacing + 45
             end,
             AddToggle = function(self, text, default, onChange)
-                spacing = spacing + 6
+                spacing = spacing + 8
                 local card = Instance.new("Frame")
                 card.BackgroundColor3 = Theme.Card
                 card.BorderSizePixel = 0
-                card.Size = UDim2.new(1, -32, 0, 36)
-                card.Position = UDim2.fromOffset(16, spacing)
+                card.Size = UDim2.new(1, -12, 0, 40)
+                card.Position = UDim2.fromOffset(6, spacing)
                 card.Parent = page
                 local cardCorner = Instance.new("UICorner")
-                cardCorner.CornerRadius = UDim.new(0, 8)
+                cardCorner.CornerRadius = UDim.new(0, 9)
                 cardCorner.Parent = card
 
                 local lbl = Instance.new("TextLabel")
                 lbl.BackgroundTransparency = 1
-                lbl.Size = UDim2.new(1, -50, 1, 0)
+                lbl.Size = UDim2.new(1, -54, 1, 0)
                 lbl.Position = UDim2.fromOffset(12, 0)
                 lbl.Text = text
                 lbl.TextColor3 = Theme.TextMain
                 lbl.Font = Enum.Font.Gotham
-                lbl.TextSize = 14
+                lbl.TextSize = 13
                 lbl.TextXAlignment = Enum.TextXAlignment.Left
                 lbl.Parent = card
 
                 local value = default == true
                 local toggle = Instance.new("Frame")
-                toggle.Size = UDim2.fromOffset(34, 18)
-                toggle.Position = UDim2.new(1, -46, 0.5, -9)
+                toggle.Size = UDim2.fromOffset(42, 20)
+                toggle.Position = UDim2.new(1, -54, 0.5, -10)
                 toggle.BackgroundColor3 = Theme.Background
                 toggle.BorderSizePixel = 0
                 toggle.Parent = card
@@ -383,7 +426,7 @@ function Lib.CreateWindow(opts)
 
                 local knob = Instance.new("Frame")
                 knob.Size = UDim2.fromOffset(14, 14)
-                knob.Position = UDim2.fromOffset(2, 2)
+                knob.Position = UDim2.fromOffset(3, 3)
                 knob.BackgroundColor3 = Theme.TextDim
                 knob.BorderSizePixel = 0
                 knob.Parent = toggle
@@ -392,12 +435,15 @@ function Lib.CreateWindow(opts)
                 knobCorner.Parent = knob
 
                 local function apply()
-                    TweenService:Create(toggle, TweenInfo.new(0.15), { BackgroundColor3 = value and accent or Theme.Background }):Play()
+                    TweenService:Create(toggle, TweenInfo.new(0.15), {
+                        BackgroundColor3 = value and accent or Theme.Background,
+                    }):Play()
                     TweenService:Create(knob, TweenInfo.new(0.15), {
-                        Position = value and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2),
+                        Position = value and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3),
                         BackgroundColor3 = value and Color3.new(1, 1, 1) or Theme.TextDim,
                     }):Play()
                 end
+
                 local click = Instance.new("TextButton")
                 click.BackgroundTransparency = 1
                 click.Size = UDim2.new(1, 0, 1, 0)
@@ -413,7 +459,7 @@ function Lib.CreateWindow(opts)
                     end
                 end)
                 apply()
-                spacing = spacing + 42
+                spacing = spacing + 46
                 return {
                     Get = function()
                         return value
@@ -430,41 +476,45 @@ function Lib.CreateWindow(opts)
                 }
             end,
             AddSlider = function(self, text, min, max, default, onChange)
-                spacing = spacing + 6
+                spacing = spacing + 8
                 local card = Instance.new("Frame")
                 card.BackgroundColor3 = Theme.Card
                 card.BorderSizePixel = 0
-                card.Size = UDim2.new(1, -32, 0, 44)
-                card.Position = UDim2.fromOffset(16, spacing)
+                card.Size = UDim2.new(1, -12, 0, 48)
+                card.Position = UDim2.fromOffset(6, spacing)
                 card.Parent = page
                 local cardCorner = Instance.new("UICorner")
-                cardCorner.CornerRadius = UDim.new(0, 8)
+                cardCorner.CornerRadius = UDim.new(0, 9)
                 cardCorner.Parent = card
 
                 local lbl = Instance.new("TextLabel")
                 lbl.BackgroundTransparency = 1
-                lbl.Size = UDim2.new(1, -20, 0, 18)
-                lbl.Position = UDim2.fromOffset(12, 2)
+                lbl.Size = UDim2.new(1, -70, 0, 18)
+                lbl.Position = UDim2.fromOffset(12, 5)
                 lbl.Text = text
                 lbl.TextColor3 = Theme.TextMain
                 lbl.Font = Enum.Font.Gotham
-                lbl.TextSize = 13
+                lbl.TextSize = 12
                 lbl.TextXAlignment = Enum.TextXAlignment.Left
                 lbl.Parent = card
 
                 local valLabel = Instance.new("TextLabel")
-                valLabel.BackgroundTransparency = 1
-                valLabel.Size = UDim2.new(0, 50, 0, 18)
-                valLabel.Position = UDim2.new(1, -60, 0, 2)
+                valLabel.BackgroundColor3 = Theme.SurfaceAlt
+                valLabel.BorderSizePixel = 0
+                valLabel.Size = UDim2.fromOffset(52, 22)
+                valLabel.Position = UDim2.new(1, -62, 0, 4)
                 valLabel.Text = tostring(default)
                 valLabel.TextColor3 = accent
                 valLabel.Font = Enum.Font.GothamBold
-                valLabel.TextSize = 13
-                valLabel.TextXAlignment = Enum.TextXAlignment.Right
+                valLabel.TextSize = 12
+                valLabel.TextXAlignment = Enum.TextXAlignment.Center
                 valLabel.Parent = card
+                local valCorner = Instance.new("UICorner")
+                valCorner.CornerRadius = UDim.new(0, 6)
+                valCorner.Parent = valLabel
 
                 local track = Instance.new("Frame")
-                track.Size = UDim2.new(1, -24, 0, 4)
+                track.Size = UDim2.new(1, -18, 0, 4)
                 track.Position = UDim2.new(0, 12, 1, -12)
                 track.BackgroundColor3 = Theme.Background
                 track.BorderSizePixel = 0
@@ -484,9 +534,8 @@ function Lib.CreateWindow(opts)
 
                 local grab = Instance.new("TextButton")
                 grab.BackgroundTransparency = 1
-                grab.Size = UDim2.new(0, 40, 0, 20)
-                grab.Position = UDim2.new(0, -20, 1, -12)
-                grab.Position = UDim2.fromOffset(-20, -8)
+                grab.Size = UDim2.new(0, 18, 0, 18)
+                grab.Position = UDim2.new(0, -9, 1, -9)
                 grab.Text = ""
                 grab.Parent = card
 
@@ -526,7 +575,7 @@ function Lib.CreateWindow(opts)
                     end
                 end)
                 update(track.AbsolutePosition.X + (value - min) / (max - min) * track.AbsoluteSize.X)
-                spacing = spacing + 50
+                spacing = spacing + 54
                 return {
                     Get = function()
                         return value
@@ -546,7 +595,7 @@ function Lib.CreateWindow(opts)
         for _, t in ipairs(api._tabs) do
             local active = t._btn.Name == name
             t._page.Visible = active
-            t._btn.BackgroundColor3 = active and accent or Theme.Sidebar
+            t._btn.BackgroundColor3 = active and accent or Theme.SurfaceAlt
             t._btn.TextColor3 = active and Color3.new(1, 1, 1) or Theme.TextDim
         end
     end
@@ -591,53 +640,66 @@ local function buildKeyGui()
 
     local dim = Instance.new("Frame")
     dim.BackgroundColor3 = Color3.new(0, 0, 0)
-    dim.BackgroundTransparency = 0.55
+    dim.BackgroundTransparency = 0.58
     dim.Size = UDim2.new(1, 0, 1, 0)
     dim.Parent = screenGui
 
     local card = Instance.new("Frame")
     card.AnchorPoint = Vector2.new(0.5, 0.5)
     card.Position = UDim2.fromScale(0.5, 0.5)
-    card.Size = UDim2.fromOffset(380, 250)
-    card.BackgroundColor3 = Theme.Background
+    card.Size = UDim2.fromOffset(390, 260)
+    card.BackgroundColor3 = Theme.Window
     card.BorderSizePixel = 0
     card.Parent = screenGui
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 14)
+    corner.CornerRadius = UDim.new(0, 16)
     corner.Parent = card
     local stroke = Instance.new("UIStroke")
     stroke.Color = Theme.Accent
-    stroke.Thickness = 1.5
-    stroke.Transparency = 0.35
+    stroke.Thickness = 1.2
+    stroke.Transparency = 0.32
     stroke.Parent = card
+
+    local glow = Instance.new("Frame")
+    glow.BackgroundColor3 = Theme.Accent
+    glow.BackgroundTransparency = 0.9
+    glow.Size = UDim2.new(1, -30, 0, 60)
+    glow.Position = UDim2.fromOffset(15, 12)
+    glow.BorderSizePixel = 0
+    glow.Parent = card
+    local glowCorner = Instance.new("UICorner")
+    glowCorner.CornerRadius = UDim.new(0, 14)
+    glowCorner.Parent = glow
 
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
-    label.Size = UDim2.new(1, 0, 0, 40)
-    label.Position = UDim2.fromOffset(0, 14)
+    label.Size = UDim2.new(1, -40, 0, 28)
+    label.Position = UDim2.fromOffset(20, 20)
     label.Font = Enum.Font.GothamBold
-    label.TextSize = 20
+    label.TextSize = 22
     label.Text = "Frost"
     label.TextColor3 = Theme.TextMain
+    label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = card
 
     local subLabel = Instance.new("TextLabel")
     subLabel.BackgroundTransparency = 1
-    subLabel.Size = UDim2.new(1, 0, 0, 34)
-    subLabel.Position = UDim2.fromOffset(0, 54)
+    subLabel.Size = UDim2.new(1, -40, 0, 22)
+    subLabel.Position = UDim2.fromOffset(20, 52)
     subLabel.Font = Enum.Font.Gotham
-    subLabel.TextSize = 13
+    subLabel.TextSize = 12
     subLabel.TextColor3 = Theme.TextDim
     subLabel.Text = "Enter your key to continue"
+    subLabel.TextXAlignment = Enum.TextXAlignment.Left
     subLabel.Parent = card
 
     local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1, -60, 0, 36)
-    box.Position = UDim2.fromOffset(30, 98)
-    box.BackgroundColor3 = Theme.Card
+    box.Size = UDim2.new(1, -40, 0, 38)
+    box.Position = UDim2.fromOffset(20, 90)
+    box.BackgroundColor3 = Theme.Surface
     box.BorderSizePixel = 0
     box.Font = Enum.Font.GothamBold
-    box.TextSize = 16
+    box.TextSize = 15
     box.Text = ""
     box.PlaceholderText = "FREEKEY-XXXX-XXXX"
     box.PlaceholderColor3 = Theme.TextDim
@@ -645,23 +707,24 @@ local function buildKeyGui()
     box.TextXAlignment = Enum.TextXAlignment.Center
     box.Parent = card
     local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 8)
+    boxCorner.CornerRadius = UDim.new(0, 10)
     boxCorner.Parent = box
 
     local status = Instance.new("TextLabel")
     status.BackgroundTransparency = 1
-    status.Size = UDim2.new(1, -40, 0, 30)
-    status.Position = UDim2.fromOffset(20, 140)
+    status.Size = UDim2.new(1, -40, 0, 24)
+    status.Position = UDim2.fromOffset(20, 136)
     status.Font = Enum.Font.Gotham
     status.TextSize = 12
     status.Text = ""
     status.TextColor3 = Theme.TextDim
+    status.TextXAlignment = Enum.TextXAlignment.Left
     status.Parent = card
 
     local buttonRow = Instance.new("Frame")
     buttonRow.BackgroundTransparency = 1
-    buttonRow.Size = UDim2.new(1, -30, 0, 36)
-    buttonRow.Position = UDim2.fromOffset(15, 178)
+    buttonRow.Size = UDim2.new(1, -40, 0, 34)
+    buttonRow.Position = UDim2.fromOffset(20, 168)
     buttonRow.Parent = card
 
     local unlockBtn = Instance.new("TextButton")
@@ -674,27 +737,27 @@ local function buildKeyGui()
     unlockBtn.Text = "Unlock"
     unlockBtn.Parent = buttonRow
     local unlockCorner = Instance.new("UICorner")
-    unlockCorner.CornerRadius = UDim.new(0, 8)
+    unlockCorner.CornerRadius = UDim.new(0, 9)
     unlockCorner.Parent = unlockBtn
 
     local retryBtn = Instance.new("TextButton")
     retryBtn.Position = UDim2.new(0.5, 4, 0, 0)
     retryBtn.Size = UDim2.new(0.5, -4, 1, 0)
-    retryBtn.BackgroundColor3 = Theme.Card
+    retryBtn.BackgroundColor3 = Theme.Surface
     retryBtn.BorderSizePixel = 0
     retryBtn.Font = Enum.Font.Gotham
-    retryBtn.TextSize = 14
+    retryBtn.TextSize = 13
     retryBtn.TextColor3 = Theme.TextMain
     retryBtn.Text = "Re-check Key"
     retryBtn.Parent = buttonRow
     local retryCorner = Instance.new("UICorner")
-    retryCorner.CornerRadius = UDim.new(0, 8)
+    retryCorner.CornerRadius = UDim.new(0, 9)
     retryCorner.Parent = retryBtn
 
     local info = Instance.new("TextLabel")
     info.BackgroundTransparency = 1
     info.Size = UDim2.new(1, 0, 0, 20)
-    info.Position = UDim2.fromOffset(0, 220)
+    info.Position = UDim2.fromOffset(0, 228)
     info.Font = Enum.Font.Gotham
     info.TextSize = 11
     info.TextColor3 = Theme.TextDim
@@ -978,7 +1041,9 @@ end
 local okStart, errStart = pcall(function()
     coroutine.wrap(function()
         pcall(function()
-            setidentity and setidentity(8)
+            if setidentity then
+                setidentity(8)
+            end
         end)
         waitSafe(0.5)
         buildKeyGui()
