@@ -251,7 +251,7 @@ function Lib.CreateWindow(opts)
 
     local tabList = Instance.new("ScrollingFrame")
     tabList.Name = "Tabs"
-    tabList.Size = UDim2.new(0, 86, 1, -72)
+    tabList.Size = UDim2.new(0, 124, 1, -72)
     tabList.Position = UDim2.fromOffset(10, 64)
     tabList.BackgroundTransparency = 1
     tabList.BorderSizePixel = 0
@@ -262,8 +262,8 @@ function Lib.CreateWindow(opts)
 
     local contentArea = Instance.new("Frame")
     contentArea.Name = "Content"
-    contentArea.Size = UDim2.new(1, -108, 1, -72)
-    contentArea.Position = UDim2.fromOffset(102, 64)
+    contentArea.Size = UDim2.new(1, -146, 1, -72)
+    contentArea.Position = UDim2.fromOffset(140, 64)
     contentArea.BackgroundTransparency = 1
     contentArea.ClipsDescendants = true
     contentArea.Parent = window
@@ -661,6 +661,12 @@ function Lib.CreateWindow(opts)
                     end,
                 }
             end,
+            Clear = function(self)
+                page:ClearAllChildren()
+                page.CanvasPosition = Vector2.zero
+                page.CanvasSize = UDim2.new(0, 0, 0, 0)
+                spacing = 10
+            end,
         }
         table.insert(api._tabs, tab)
 
@@ -676,6 +682,9 @@ function Lib.CreateWindow(opts)
             t._page.Visible = active
             t._btn.BackgroundColor3 = active and accent or Theme.SurfaceAlt
             t._btn.TextColor3 = active and Color3.new(1, 1, 1) or Theme.TextDim
+            if active then
+                api._activeTab = t
+            end
         end
     end
 
@@ -933,6 +942,46 @@ end
 function buildHub()
     print("[Frost] Building hub")
 
+    local eggEspActive = false
+    local playerEspActive = false
+    local autoCollectActive = false
+    local autoFarmActive = false
+
+    local function isEgg(obj)
+        return obj.Name:lower():find("egg") ~= nil
+            or obj:FindFirstChild("EggType", true) ~= nil
+            or obj:FindFirstChild("Rarity", true) ~= nil
+    end
+
+    local function getEggPart(obj)
+        if obj:IsA("BasePart") then
+            return obj
+        end
+        return obj:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    local function clearEggEsp()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            local highlight = obj:FindFirstChild("_FrostESP")
+            if highlight then
+                highlight:Destroy()
+            end
+            if obj.Name == "_FrostPredict" then
+                obj:Destroy()
+            end
+        end
+    end
+
+    local function clearPlayerEsp()
+        for _, player in ipairs(Players:GetPlayers()) do
+            local root = getRootPart(player.Character)
+            local box = root and root:FindFirstChild("_FrostPlayerESP")
+            if box then
+                box:Destroy()
+            end
+        end
+    end
+
     local supportedGames = {
         ["Steal An Egg"] = {
             PlaceId = 107778070777162,
@@ -940,12 +989,13 @@ function buildHub()
                 tab:AddLabel("Steal An Egg Features", true)
 
                 tab:AddToggle("Egg ESP", false, function(on)
+                    eggEspActive = on
                     if on then
                         task.spawn(function()
-                            while on do
+                            while eggEspActive do
                                 task.wait(0.5)
                                 for _, obj in ipairs(workspace:GetDescendants()) do
-                                    if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType") or obj:FindFirstChild("Rarity")) and not obj:FindFirstChild("_FrostESP") then
+                                    if isEgg(obj) and not obj:FindFirstChild("_FrostESP") then
                                         local h = Instance.new("Highlight")
                                         h.FillColor = Color3.fromRGB(255, 204, 0)
                                         h.FillTransparency = 0.5
@@ -959,17 +1009,15 @@ function buildHub()
                             end
                         end)
                     else
-                        for _, obj in ipairs(workspace:GetDescendants()) do
-                            local h = obj:FindFirstChild("_FrostESP")
-                            if h then h:Destroy() end
-                        end
+                        clearEggEsp()
                     end
                 end)
 
                 tab:AddToggle("Player ESP", false, function(on)
+                    playerEspActive = on
                     if on then
                         task.spawn(function()
-                            while on do
+                            while playerEspActive do
                                 task.wait(0.5)
                                 for _, player in ipairs(Players:GetPlayers()) do
                                     if player ~= LocalPlayer and player.Character then
@@ -988,23 +1036,14 @@ function buildHub()
                             end
                         end)
                     else
-                        for _, player in ipairs(Players:GetPlayers()) do
-                            if player.Character then
-                                local root = player.Character:FindFirstChild("HumanoidRootPart")
-                                if root then
-                                    local b = root:FindFirstChild("_FrostPlayerESP")
-                                    if b then b:Destroy() end
-                                end
-                            end
-                        end
+                        clearPlayerEsp()
                     end
                 end)
 
-                local bestEggActive = false
-                tab:AddToggle("Best Egg Auto-Collect", false, function(on)
-                    bestEggActive = on
+                tab:AddToggle("Closest Egg Auto-Collect", false, function(on)
+                    autoCollectActive = on
                     task.spawn(function()
-                        while bestEggActive do
+                        while autoCollectActive do
                             task.wait(0.3)
                             local char = getCharacter()
                             local root = getRootPart(char)
@@ -1013,11 +1052,12 @@ function buildHub()
                                 local closestEgg = nil
                                 local closestDist = math.huge
                                 for _, obj in ipairs(workspace:GetDescendants()) do
-                                    if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
-                                        local dist = (obj.Position - root.Position).Magnitude
+                                    local eggPart = isEgg(obj) and getEggPart(obj)
+                                    if eggPart then
+                                        local dist = (eggPart.Position - root.Position).Magnitude
                                         if dist < closestDist and dist < 50 then
                                             closestDist = dist
-                                            closestEgg = obj
+                                            closestEgg = eggPart
                                         end
                                     end
                                 end
@@ -1029,7 +1069,6 @@ function buildHub()
                     end)
                 end)
 
-                local autoFarmActive = false
                 tab:AddToggle("Auto Farm Eggs", false, function(on)
                     autoFarmActive = on
                     task.spawn(function()
@@ -1039,20 +1078,25 @@ function buildHub()
                             local root = getRootPart(char)
                             local humanoid = getHumanoid(char)
                             if root and humanoid then
+                                local closestEgg = nil
+                                local closestDist = math.huge
                                 for _, obj in ipairs(workspace:GetDescendants()) do
-                                    if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
-                                        local dist = (obj.Position - root.Position).Magnitude
-                                        if dist < 30 then
-                                            root.CFrame = CFrame.lookAt(root.Position, obj.Position) * CFrame.new(0, 0, -5)
+                                    local eggPart = isEgg(obj) and getEggPart(obj)
+                                    if eggPart then
+                                        local dist = (eggPart.Position - root.Position).Magnitude
+                                        if dist < closestDist and dist < 30 then
+                                            closestDist = dist
+                                            closestEgg = eggPart
                                         end
                                     end
+                                end
+                                if closestEgg then
+                                    root.CFrame = CFrame.lookAt(root.Position, closestEgg.Position) * CFrame.new(0, 0, -5)
                                 end
                             end
                         end
                     end)
                 end)
-
-                tab:AddSlider("ESP Draw Distance", 10, 200, 50, function(val) end)
 
                 tab:AddButton("Teleport to Closest Egg", function()
                     local char = getCharacter()
@@ -1061,11 +1105,12 @@ function buildHub()
                     local closestEgg = nil
                     local closestDist = math.huge
                     for _, obj in ipairs(workspace:GetDescendants()) do
-                        if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
-                            local dist = (obj.Position - root.Position).Magnitude
+                        local eggPart = isEgg(obj) and getEggPart(obj)
+                        if eggPart then
+                            local dist = (eggPart.Position - root.Position).Magnitude
                             if dist < closestDist then
                                 closestDist = dist
-                                closestEgg = obj
+                                closestEgg = eggPart
                             end
                         end
                     end
@@ -1099,14 +1144,14 @@ function buildHub()
 
                 tab:AddButton("Prediction ESP", function()
                     for _, obj in ipairs(workspace:GetDescendants()) do
-                        if obj.Name:lower():find("egg") or obj:FindFirstChild("EggType") then
-                            if not obj:FindFirstChild("_FrostPredict") then
+                        local eggPart = isEgg(obj) and getEggPart(obj)
+                        if eggPart and not eggPart:FindFirstChild("_FrostPredict") then
                                 local p = Instance.new("Part")
                                 p.Anchored = true
                                 p.CanCollide = false
                                 p.Transparency = 1
-                                p.Size = obj.Size
-                                p.Position = obj.Position + Vector3.new(0, 2, 0)
+                                p.Size = eggPart.Size
+                                p.Position = eggPart.Position + Vector3.new(0, 2, 0)
                                 p.Parent = workspace
                                 p.Name = "_FrostPredict"
                                 local c = Instance.new("BillboardGui")
@@ -1129,24 +1174,19 @@ function buildHub()
                 end, true)
 
                 tab:AddButton("Clear All ESP", function()
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        local h = obj:FindFirstChild("_FrostESP")
-                        local p = obj:FindFirstChild("_FrostPredict")
-                        if h then h:Destroy() end
-                        if p then p:Destroy() end
-                    end
-                    for _, player in ipairs(Players:GetPlayers()) do
-                        if player.Character then
-                            local root = player.Character:FindFirstChild("HumanoidRootPart")
-                            if root then
-                                local b = root:FindFirstChild("_FrostPlayerESP")
-                                if b then b:Destroy() end
-                            end
-                        end
-                    end
+                    clearEggEsp()
+                    clearPlayerEsp()
                 end, true)
 
-                tab:AddLabel("Features: Egg ESP, Player ESP, Best Egg Auto, Auto Farm, Prediction ESP, Teleport, Clear All.", true)
+                tab:AddLabel("Features: Egg ESP, Player ESP, closest-egg collection, auto farm, prediction, teleports, and cleanup.", true)
+            end,
+            Cleanup = function()
+                eggEspActive = false
+                playerEspActive = false
+                autoCollectActive = false
+                autoFarmActive = false
+                clearEggEsp()
+                clearPlayerEsp()
             end,
         },
     }
@@ -1287,65 +1327,33 @@ function buildHub()
     end, true)
 
     local gameTab = hub.AddTab("Steal An Egg")
-    local gameTabActive = false
-
     local information = hub.AddTab("Information")
     information:AddLabel("Select a game to load features:", true)
     information:AddLabel("PlaceId 107778070777162 = Steal An Egg", true)
     information:AddLabel("Universal features are always available.", true)
-
-    local stealBtn = Instance.new("TextButton")
-    stealBtn.Size = UDim2.new(1, -12, 0, 40)
-    stealBtn.Position = UDim2.fromOffset(6, 60)
-    stealBtn.BackgroundColor3 = Theme.Card
-    stealBtn.BorderSizePixel = 0
-    stealBtn.Text = "Load Steal An Egg Features"
-    stealBtn.TextColor3 = Theme.TextMain
-    stealBtn.Font = Enum.Font.GothamSemibold
-    stealBtn.TextSize = 13
-    stealBtn.TextXAlignment = Enum.TextXAlignment.Left
-    stealBtn.Parent = information._page
-    local stealCorner = Instance.new("UICorner")
-    stealCorner.CornerRadius = UDim.new(0, 9)
-    stealCorner.Parent = stealBtn
-
-    stealBtn.MouseButton1Click:Connect(function()
+    information:AddButton("Load Steal An Egg Features", function()
         task.spawn(function()
-            if gameTabActive then
-                gameTab._page:Clear()
-            end
-            gameTabActive = true
-            gameTab._page.CanvasSize = UDim2.new(0, 0, 0, 0)
             local gameObj = supportedGames["Steal An Egg"]
+            if gameObj and gameObj.Cleanup then
+                gameObj.Cleanup()
+            end
+            gameTab:Clear()
             if gameObj and gameObj.Features then
                 gameObj.Features(gameTab)
             end
             hub.Select("Steal An Egg")
         end)
     end)
-
-    local resetBtn = Instance.new("TextButton")
-    resetBtn.Size = UDim2.new(1, -12, 0, 40)
-    resetBtn.Position = UDim2.fromOffset(6, 110)
-    resetBtn.BackgroundColor3 = Theme.Card
-    resetBtn.BorderSizePixel = 0
-    resetBtn.Text = "Reset to Universal"
-    resetBtn.TextColor3 = Theme.TextMain
-    resetBtn.Font = Enum.Font.GothamSemibold
-    resetBtn.TextSize = 13
-    resetBtn.TextXAlignment = Enum.TextXAlignment.Left
-    resetBtn.Parent = information._page
-    local resetCorner = Instance.new("UICorner")
-    resetCorner.CornerRadius = UDim.new(0, 9)
-    resetCorner.Parent = resetBtn
-
-    resetBtn.MouseButton1Click:Connect(function()
+    information:AddButton("Reset to Universal", function()
         task.spawn(function()
-            gameTab._page:Clear()
-            gameTabActive = false
+            local gameObj = supportedGames["Steal An Egg"]
+            if gameObj and gameObj.Cleanup then
+                gameObj.Cleanup()
+            end
+            gameTab:Clear()
             hub.Select("Universal")
         end)
-    end)
+    end, true)
 
     hub.Select("Information")
 end
