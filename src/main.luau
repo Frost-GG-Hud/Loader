@@ -702,7 +702,7 @@ local function buildKeyGui()
     local card = Instance.new("Frame")
     card.AnchorPoint = Vector2.new(0.5, 0.5)
     card.Position = UDim2.fromScale(0.5, 0.5)
-    card.Size = UDim2.fromOffset(390, 260)
+    card.Size = UDim2.fromOffset(390, 300)
     card.BackgroundColor3 = Theme.Window
     card.BorderSizePixel = 0
     card.Parent = screenGui
@@ -809,10 +809,44 @@ local function buildKeyGui()
     retryCorner.CornerRadius = UDim.new(0, 9)
     retryCorner.Parent = retryBtn
 
+    local getKeyBtn = Instance.new("TextButton")
+    getKeyBtn.Position = UDim2.fromOffset(20, 210)
+    getKeyBtn.Size = UDim2.new(1, -40, 0, 32)
+    getKeyBtn.BackgroundColor3 = Theme.AccentDark
+    getKeyBtn.BorderSizePixel = 0
+    getKeyBtn.Font = Enum.Font.GothamSemibold
+    getKeyBtn.TextSize = 13
+    getKeyBtn.TextColor3 = Color3.new(1, 1, 1)
+    getKeyBtn.Text = "Get Key - Copy Discord Invite"
+    getKeyBtn.Parent = card
+    local getKeyCorner = Instance.new("UICorner")
+    getKeyCorner.CornerRadius = UDim.new(0, 9)
+    getKeyCorner.Parent = getKeyBtn
+
+    local discordInvite = "https://discord.gg/TWnmPCxxSY"
+    getKeyBtn.MouseButton1Click:Connect(function()
+        local copied = false
+        for _, clipboardName in ipairs({ "setclipboard", "toclipboard" }) do
+            local clipboard = getfenv and getfenv()[clipboardName]
+            if type(clipboard) == "function" then
+                copied = pcall(clipboard, discordInvite)
+                if copied then
+                    break
+                end
+            end
+        end
+        status.TextColor3 = Theme.Success
+        if copied then
+            status.Text = "Discord invite copied. Paste it into Discord or your browser."
+        else
+            status.Text = "Discord invite: " .. discordInvite
+        end
+    end)
+
     local info = Instance.new("TextLabel")
     info.BackgroundTransparency = 1
     info.Size = UDim2.new(1, 0, 0, 20)
-    info.Position = UDim2.fromOffset(0, 228)
+    info.Position = UDim2.fromOffset(0, 258)
     info.Font = Enum.Font.Gotham
     info.TextSize = 11
     info.TextColor3 = Theme.TextDim
