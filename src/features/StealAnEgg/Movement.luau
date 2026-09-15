@@ -1,5 +1,5 @@
 -- Movement, Automation, Traps & Guard Bypasses for Steal An Egg.
--- Anti-cheat compliant: ZERO teleportation. High-speed safe locomotion (1-1000) via AssemblyLinearVelocity & MoveTo.
+-- Anti-cheat compliant: ZERO teleportation. PathfindingService wall-avoidance navigation.
 -- Automatic re-grab recovery if trapped by animals. Minimum money per second filtering.
 
 local ctx = ...
@@ -10,10 +10,12 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local PathfindingService = game:GetService("PathfindingService")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
-local ARRIVE_DISTANCE = 7
+local ARRIVE_DISTANCE = 6
+local WAYPOINT_DISTANCE = 4.5
 local SAFE_ZONE_NAMES = { "SafeZone", "SafeArea", "Base", "Baseplate", "SpawnArea", "PlayerPlot", "Plot" }
 
 local Movement = {}
@@ -24,6 +26,14 @@ pcall(function()
 	local eggStateMod = ReplicatedStorage:FindFirstChild("Client") and ReplicatedStorage.Client:FindFirstChild("EggState")
 	if eggStateMod and eggStateMod:IsA("ModuleScript") then
 		eggStateModule = require(eggStateMod)
+	end
+end)
+
+local plotStateModule = nil
+pcall(function()
+	local psMod = ReplicatedStorage:FindFirstChild("Client") and ReplicatedStorage.Client:FindFirstChild("PlotState")
+	if psMod and psMod:IsA("ModuleScript") then
+		plotStateModule = require(psMod)
 	end
 end)
 
@@ -69,11 +79,20 @@ function Movement.new(config)
 		webhookUrl = "",
 		customSpeed = 60,
 		minMoneyPerSec = 0,
+		rememberedBasePos = nil,
 		busy = false,
 		connections = {},
 	}, Movement)
 
 	self:neutralizeAntiCheat()
+
+	-- Remember initial spawn position as safe base fallback
+	pcall(function()
+		local root = Util.getRootPart()
+		if root then
+			self.rememberedBasePos = root.Position
+		end
+	end)
 
 	return self
 end
@@ -88,7 +107,6 @@ function Movement:_context()
 	return hum, root
 end
 
--- Completely neutralizes client anti-cheat scripts and attributes
 function Movement:neutralizeAntiCheat()
 	pcall(function()
 		workspace:SetAttribute("ClientObbyAntiTp", false)
@@ -108,7 +126,6 @@ function Movement:neutralizeAntiCheat()
 	pcall(function() clean(LocalPlayer.Character) end)
 end
 
--- Minimum money parser (e.g. 1M, 500k, 1000, 2.5m)
 function Movement:setMinMoney(amountStr)
 	local text = string.lower(string.gsub(tostring(amountStr or ""), "[%$,%s]", ""))
 	if text == "" or text == "0" then
@@ -130,7 +147,6 @@ function Movement:setMinMoney(amountStr)
 	end
 end
 
--- Speed customization (1 - 1000) using true linear velocity locomotion
 function Movement:setSpeed(speed)
 	self.customSpeed = math.clamp(tonumber(speed) or 60, 1, 1000)
 	local hum = Util.getHumanoid()
@@ -149,7 +165,6 @@ function Movement:toggleSpeedBypass(enabled)
 		end
 		self.notify(string.format("Speed Bypass active (Speed: %d)", self.customSpeed), "success")
 
-		-- Active velocity locomotion loop: moves at true speed 1 to 1000 whenever WASD/joystick is engaged
 		if not self.connections.speedLoop then
 			self.connections.speedLoop = RunService.Heartbeat:Connect(function(dt)
 				if not self.speedBypassRunning and not self.autoFarmAllRunning and not self.autoFarmBestRunning then
@@ -165,7 +180,6 @@ function Movement:toggleSpeedBypass(enabled)
 					currentHum.WalkSpeed = self.customSpeed
 				end
 
-				-- If player is actively steering via controls (not during auto farm pathing)
 				if not self.autoFarmAllRunning and not self.autoFarmBestRunning then
 					local moveDir = currentHum.MoveDirection
 					if moveDir.Magnitude > 0 then
@@ -282,25 +296,72 @@ function Movement:logEggStolen(entry)
 	end)
 end
 
+-- 100% Reliable Player Plot & Deposit Location Finder (regardless of which plot is assigned)
 function Movement:findBasePosition()
-	local plots = workspace:FindFirstChild("Plots") or workspace:FindFirstChild("PlayerPlots")
-	if plots then
-		for _, plot in ipairs(plots:GetChildren()) do
+	-- 1. Check official PlotState module
+	if plotStateModule and plotStateModule.GetLocalPlot then
+		local ok, plot = pcall(plotStateModule.GetLocalPlot)
+		if ok and plot and plot:IsA("Instance") then
+			local deposit = plot:FindFirstChild("EggPen", true)
+				or plot:FindFirstChild("Deposit", true)
+				or plot:FindFirstChild("Base", true)
+				or plot:FindFirstChild("Pad", true)
+			if deposit then
+				local pos = EggData.worldPositionOf(deposit)
+				if pos then return pos + Vector3.new(0, 3, 0) end
+			end
+			local pos = EggData.worldPositionOf(plot)
+			if pos then return pos + Vector3.new(0, 3, 0) end
+		end
+	end
+
+	-- 2. Search workspace Plots for player's assigned plot
+	local plotsFolder = workspace:FindFirstChild("Plots")
+		or workspace:FindFirstChild("PlayerPlots")
+		or workspace:FindFirstChild("Plots", true)
+
+	if plotsFolder then
+		for _, plot in ipairs(plotsFolder:GetChildren()) do
 			local owner = plot:GetAttribute("Owner") or plot:GetAttribute("OwnerName") or plot:GetAttribute("OwnerId")
-			if owner == LocalPlayer.Name or owner == LocalPlayer.UserId then
-				local deposit = plot:FindFirstChild("Deposit", true) or plot:FindFirstChild("EggPen", true) or plot:FindFirstChild("Base", true)
+			local isMatch = (owner == LocalPlayer.Name or owner == tostring(LocalPlayer.UserId) or owner == LocalPlayer.UserId)
+
+			if not isMatch then
+				-- Check sign or child text label
+				local sign = plot:FindFirstChild("Sign", true) or plot:FindFirstChild("OwnerSign", true)
+				if sign then
+					for _, d in ipairs(sign:GetDescendants()) do
+						if d:IsA("TextLabel") and (string.find(d.Text, LocalPlayer.Name, 1, true) or string.find(d.Text, LocalPlayer.DisplayName, 1, true)) then
+							isMatch = true
+							break
+						end
+					end
+				end
+			end
+
+			if isMatch then
+				local deposit = plot:FindFirstChild("EggPen", true)
+					or plot:FindFirstChild("Deposit", true)
+					or plot:FindFirstChild("Base", true)
+					or plot:FindFirstChild("Collector", true)
 				if deposit then
 					local pos = EggData.worldPositionOf(deposit)
 					if pos then
-						return pos + Vector3.new(0, 3, 0)
+						self.rememberedBasePos = pos + Vector3.new(0, 3, 0)
+						return self.rememberedBasePos
 					end
 				end
 				local pos = EggData.worldPositionOf(plot)
 				if pos then
-					return pos + Vector3.new(0, 3, 0)
+					self.rememberedBasePos = pos + Vector3.new(0, 3, 0)
+					return self.rememberedBasePos
 				end
 			end
 		end
+	end
+
+	-- 3. Return remembered base position or spawn
+	if self.rememberedBasePos then
+		return self.rememberedBasePos
 	end
 
 	for _, name in ipairs(SAFE_ZONE_NAMES) do
@@ -321,7 +382,6 @@ function Movement:findBasePosition()
 	return Vector3.new(0, 10, 0)
 end
 
--- Checks if the character is currently trapped or immobilized by an animal/guard
 function Movement:isTrapped()
 	local char = LocalPlayer.Character
 	if not char then return false end
@@ -335,7 +395,24 @@ function Movement:isTrapped()
 	return false
 end
 
--- Safe pathing to target position using custom speed (1-1000)
+-- PathfindingService wall avoidance: computes safe waypoints around walls and geometry
+function Movement:computePathWaypoints(startPos, targetPos)
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 2.5,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		WaypointSpacing = 6,
+	})
+	local ok = pcall(function()
+		path:ComputeAsync(startPos, targetPos)
+	end)
+	if ok and path.Status == Enum.PathStatus.Success then
+		return path:GetWaypoints()
+	end
+	return nil
+end
+
+-- Safe pathing to target position: follows PathfindingService waypoints, avoids walls, auto-unstucks
 function Movement:safeWalkTo(targetPos, timeoutSeconds)
 	local hum, root = self:_context()
 	if not hum or not root then
@@ -346,10 +423,13 @@ function Movement:safeWalkTo(targetPos, timeoutSeconds)
 	hum.WalkSpeed = speed
 
 	local deadline = os.clock() + (timeoutSeconds or 15)
-	local arrived = false
+	local waypoints = self:computePathWaypoints(root.Position, targetPos)
+	local waypointIdx = 1
+
+	local lastPos = root.Position
+	local stuckCount = 0
 
 	while os.clock() < deadline and (self.autoFarmAllRunning or self.autoFarmBestRunning) do
-		-- If animal traps the player, wait until the trap clears
 		if self:isTrapped() then
 			self.notify("Trapped by animal! Waiting for trap to release...", "warning")
 			while self:isTrapped() and (self.autoFarmAllRunning or self.autoFarmBestRunning) do
@@ -369,23 +449,65 @@ function Movement:safeWalkTo(targetPos, timeoutSeconds)
 			curHum.WalkSpeed = speed
 		end
 
-		local delta = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z))
-		if delta.Magnitude <= ARRIVE_DISTANCE then
-			arrived = true
-			break
+		-- Target point is either the next pathfinding waypoint or final destination
+		local currentGoal = targetPos
+		if waypoints and waypointIdx <= #waypoints then
+			currentGoal = waypoints[waypointIdx].Position
+			local wpDist = (Vector3.new(currentGoal.X, 0, currentGoal.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
+			if wpDist <= WAYPOINT_DISTANCE then
+				waypointIdx = waypointIdx + 1
+				if waypointIdx <= #waypoints then
+					currentGoal = waypoints[waypointIdx].Position
+					if waypoints[waypointIdx].Action == Enum.PathWaypointAction.Jump then
+						curHum.Jump = true
+					end
+				else
+					currentGoal = targetPos
+				end
+			end
 		end
 
-		-- Steer humanoid and apply safe linear velocity for speeds > 16
-		curHum:MoveTo(targetPos)
-		if speed > 20 and delta.Magnitude > 3 then
-			local velY = curRoot.AssemblyLinearVelocity.Y
-			curRoot.AssemblyLinearVelocity = Vector3.new(delta.Unit.X * speed, velY, delta.Unit.Z * speed)
+		local delta = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z))
+		if delta.Magnitude <= ARRIVE_DISTANCE then
+			return true
 		end
+
+		-- Steer humanoid directly toward current waypoint / target
+		curHum:MoveTo(currentGoal)
+
+		-- Apply linear velocity boost in goal direction
+		local goalDelta = (Vector3.new(currentGoal.X, 0, currentGoal.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z))
+		if speed > 20 and goalDelta.Magnitude > 2 then
+			local velY = curRoot.AssemblyLinearVelocity.Y
+			curRoot.AssemblyLinearVelocity = Vector3.new(goalDelta.Unit.X * speed, velY, goalDelta.Unit.Z * speed)
+		end
+
+		-- Wall-hit & Stuck Detection
+		local movedDist = (Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z) - Vector3.new(lastPos.X, 0, lastPos.Z)).Magnitude
+		if movedDist < 0.6 then
+			stuckCount = stuckCount + 1
+			if stuckCount >= 3 then
+				-- Jump to clear fence/obstacle edge
+				curHum.Jump = true
+				-- Recompute path around the obstacle
+				waypoints = self:computePathWaypoints(curRoot.Position, targetPos)
+				waypointIdx = 1
+				stuckCount = 0
+			end
+		else
+			stuckCount = 0
+		end
+		lastPos = curRoot.Position
 
 		task.wait(0.15)
 	end
 
-	return arrived
+	local finalRoot = Util.getRootPart()
+	if finalRoot then
+		local finalDelta = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(finalRoot.Position.X, 0, finalRoot.Position.Z))
+		return finalDelta.Magnitude <= ARRIVE_DISTANCE
+	end
+	return false
 end
 
 -- Steals an egg by actively holding E (ProximityPrompt simulation for 1.2s + game remote)
@@ -466,24 +588,20 @@ function Movement:toggleAutoFarmBest(enabled)
 				continue
 			end
 
-			-- 2. Walk to egg at custom speed
-			local reached, reason = self:safeWalkTo(target.position, 14)
-			if not reached then
-				if reason == "trapped" then
-					-- Loop back and retry this egg
-					continue
-				end
+			-- 2. Walk to egg avoiding walls
+			local reached, reason = self:safeWalkTo(target.position, 16)
+			if not reached and reason == "trapped" then
+				continue
 			end
 
 			-- 3. Steal egg by holding E
 			self:stealEgg(target)
 			task.wait(0.3)
 
-			-- 4. Walk back to base/plot to deposit
+			-- 4. Walk back to player's base plot to deposit
 			local basePos = self:findBasePosition()
-			local deposited, depReason = self:safeWalkTo(basePos, 16)
+			local deposited, depReason = self:safeWalkTo(basePos, 18)
 			if not deposited and depReason == "trapped" then
-				-- If animal trapped player during delivery, recover, return to egg and re-grab it!
 				self.notify("Animal attacked during delivery! Returning to egg to re-grab...", "warning")
 				while self:isTrapped() and self.autoFarmBestRunning do
 					task.wait(0.5)
@@ -526,8 +644,8 @@ function Movement:toggleAutoFarmAll(enabled)
 				continue
 			end
 
-			-- 1. Walk to egg
-			local reached, reason = self:safeWalkTo(target.position, 12)
+			-- 1. Walk to egg avoiding walls
+			local reached, reason = self:safeWalkTo(target.position, 14)
 			if not reached and reason == "trapped" then
 				continue
 			end
@@ -538,7 +656,7 @@ function Movement:toggleAutoFarmAll(enabled)
 
 			-- 3. Walk to base to deposit
 			local basePos = self:findBasePosition()
-			local deposited, depReason = self:safeWalkTo(basePos, 14)
+			local deposited, depReason = self:safeWalkTo(basePos, 16)
 			if not deposited and depReason == "trapped" then
 				self.notify("Animal attacked during delivery! Returning to egg...", "warning")
 				while self:isTrapped() and self.autoFarmAllRunning do
@@ -578,7 +696,13 @@ function Movement:toggleAutoCash(enabled)
 				if root then
 					for _, part in ipairs(workspace:GetDescendants()) do
 						if part:IsA("BasePart") and string.find(string.lower(part.Name), "collect", 1, true) then
-							fireTouch(root, part)
+							pcall(function()
+								if firetouchinterest then
+									firetouchinterest(root, part, 0)
+									task.wait()
+									firetouchinterest(root, part, 1)
+								end
+							end)
 						end
 					end
 				end
