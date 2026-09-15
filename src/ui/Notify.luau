@@ -1,6 +1,5 @@
--- Floating toast messages anchored to the bottom-right of the screen.
--- Lives on the ScreenGui rather than inside the window so notifications stay
--- readable while the window is minimised.
+-- Modern floating toast notification system (Rayfield / Fluent style).
+-- Displays rich notification cards with type icons, titles, dismiss button, and animated duration progress bar.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -10,16 +9,27 @@ local Builder = ctx.require("ui/Builder")
 local TweenService = game:GetService("TweenService")
 
 local MAX_VISIBLE = 4
-local LIFETIME = 2.6
-local FADE_IN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local FADE_OUT = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local LIFETIME = 3.2
+local SLIDE_IN = TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local FADE_OUT = TweenInfo.new(0.20, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PROGRESS_TWEEN = TweenInfo.new(LIFETIME, Enum.EasingStyle.Linear)
+
+local ICONS = {
+	success = "✓",
+	error = "✕",
+	warning = "⚠",
+	info = "ℹ",
+}
+
+local TITLES = {
+	success = "Success",
+	error = "Error",
+	warning = "Warning",
+	info = "Information",
+}
 
 local Notify = {}
 Notify.__index = Notify
-
-local function tween(instance, properties)
-	TweenService:Create(instance, FADE_IN, properties):Play()
-end
 
 function Notify.new(parent, opts)
 	opts = opts or {}
@@ -27,16 +37,15 @@ function Notify.new(parent, opts)
 	self.accent = opts.accent or Theme.Accent
 	self.parent = parent
 	self.cards = {}
-	self.counter = 0
 	self.destroyed = false
 
 	self.container = Builder.frame({
 		Name = "NotifyContainer",
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -16, 1, -16),
-		Size = UDim2.new(0, 290, 1, -32),
+		Size = UDim2.new(0, 310, 1, -32),
 		BackgroundTransparency = 1,
-		ZIndex = 40,
+		ZIndex = 80,
 		Parent = parent,
 	})
 
@@ -56,60 +65,140 @@ function Notify:_discardOldest()
 	end
 end
 
-function Notify:_buildCard(text, color)
+function Notify:_buildCard(text, kind, color)
+	local iconGlyph = ICONS[kind] or ICONS.info
+	local titleText = TITLES[kind] or "Frost Hub"
+
 	local card = Builder.frame({
-		Name = "Toast",
+		Name = "ToastCard",
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = Theme.Window,
-		BackgroundTransparency = 1,
-		ZIndex = 41,
+		BackgroundTransparency = 0.08,
+		ClipsDescendants = true,
+		ZIndex = 81,
 		Parent = self.container,
 	})
 	Builder.corner(card, 10)
-	Builder.stroke(card, {
+	local stroke = Builder.stroke(card, {
+		Color = color,
+		Thickness = 1.2,
+		Transparency = 0.35,
+	})
+
+	-- Left icon badge
+	local iconBadge = Builder.frame({
+		Name = "IconBadge",
+		Size = UDim2.fromOffset(24, 24),
+		Position = UDim2.fromOffset(10, 10),
+		BackgroundColor3 = color,
+		BackgroundTransparency = 0.85,
+		ZIndex = 82,
+		Parent = card,
+	})
+	Builder.pillCorner(iconBadge)
+	Builder.stroke(iconBadge, {
 		Color = color,
 		Thickness = 1,
-		Transparency = 1,
+		Transparency = 0.4,
 	})
 
-	local bar = Builder.frame({
-		Size = UDim2.new(0, 3, 1, -14),
-		Position = UDim2.fromOffset(6, 7),
-		BackgroundColor3 = color,
-		BackgroundTransparency = 1,
-		ZIndex = 42,
-		Parent = card,
-	})
-	Builder.corner(bar, 3)
-
-	local content = Builder.frame({
-		Position = UDim2.fromOffset(16, 0),
-		Size = UDim2.new(1, -26, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1,
-		ZIndex = 42,
-		Parent = card,
-	})
-	Builder.padding(content, {
-		PaddingTop = UDim.new(0, 9),
-		PaddingBottom = UDim.new(0, 9),
-	})
-
-	local label = Builder.label({
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		Font = Theme.FontMedium,
+	Builder.label({
+		Size = UDim2.new(1, 0, 1, 0),
+		Font = Theme.FontBold,
 		TextSize = 12,
-		Text = text,
-		TextWrapped = true,
-		TextTransparency = 1,
-		ZIndex = 43,
+		Text = iconGlyph,
+		TextColor3 = color,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 83,
+		Parent = iconBadge,
+	})
+
+	-- Content frame
+	local content = Builder.frame({
+		Name = "Content",
+		Position = UDim2.fromOffset(42, 8),
+		Size = UDim2.new(1, -66, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ZIndex = 82,
+		Parent = card,
+	})
+
+	Builder.label({
+		Name = "Title",
+		Size = UDim2.new(1, 0, 0, 15),
+		Font = Theme.FontBold,
+		TextSize = 12,
+		Text = titleText,
+		TextColor3 = Theme.TextMain,
+		ZIndex = 83,
 		Parent = content,
 	})
 
+	Builder.label({
+		Name = "Message",
+		Size = UDim2.new(1, 0, 0, 0),
+		Position = UDim2.fromOffset(0, 16),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Font = Theme.FontRegular,
+		TextSize = 11,
+		Text = text,
+		TextColor3 = Theme.TextDim,
+		TextWrapped = true,
+		ZIndex = 83,
+		Parent = content,
+	})
+
+	-- Dismiss button (×)
+	local closeBtn = Builder.button({
+		Name = "CloseBtn",
+		Size = UDim2.fromOffset(18, 18),
+		Position = UDim2.new(1, -24, 0, 8),
+		ZIndex = 84,
+		Parent = card,
+	})
+	Builder.pillCorner(closeBtn)
+
+	local closeLabel = Builder.label({
+		Size = UDim2.new(1, 0, 1, 0),
+		Font = Theme.FontBold,
+		TextSize = 12,
+		Text = "×",
+		TextColor3 = Theme.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 85,
+		Parent = closeBtn,
+	})
+
+	closeBtn.MouseEnter:Connect(function()
+		closeLabel.TextColor3 = Theme.Danger
+	end)
+	closeBtn.MouseLeave:Connect(function()
+		closeLabel.TextColor3 = Theme.TextMuted
+	end)
+
+	-- Padding spacer at bottom so content doesn't collide with progress bar
+	local spacer = Builder.frame({
+		Size = UDim2.new(1, 0, 0, 14),
+		Position = UDim2.new(0, 0, 1, -14),
+		BackgroundTransparency = 1,
+		ZIndex = 81,
+		Parent = card,
+	})
+
+	-- Duration progress bar along bottom
+	local progressBar = Builder.frame({
+		Name = "ProgressBar",
+		Size = UDim2.new(1, 0, 0, 2),
+		Position = UDim2.new(0, 0, 1, -2),
+		BackgroundColor3 = color,
+		ZIndex = 83,
+		Parent = card,
+	})
+
 	table.insert(self.cards, card)
-	return card, bar, label
+	return card, stroke, closeBtn, progressBar
 end
 
 function Notify:push(text, kind)
@@ -117,36 +206,39 @@ function Notify:push(text, kind)
 		return
 	end
 
+	kind = string.lower(tostring(kind or "info"))
 	local color = Theme.colorForKind(kind)
-	self.counter = self.counter + 1
 
 	while #self.cards >= MAX_VISIBLE do
 		self:_discardOldest()
 	end
 
-	local card, bar, label = self:_buildCard(tostring(text), color)
-	local stroke = card:FindFirstChildOfClass("UIStroke")
+	local card, stroke, closeBtn, progressBar = self:_buildCard(tostring(text), kind, color)
 
-	tween(card, { BackgroundTransparency = 0.05 })
-	if stroke then
-		tween(stroke, { Transparency = 0.35 })
-	end
-	tween(bar, { BackgroundTransparency = 0 })
-	tween(label, { TextTransparency = 0 })
+	-- Initial offscreen slide-in position
+	card.Position = UDim2.new(0, 60, 0, 0)
+	TweenService:Create(card, SLIDE_IN, { Position = UDim2.new(0, 0, 0, 0) }):Play()
 
-	Util.delay(LIFETIME, function()
-		if not card.Parent then
+	-- Shrinking duration progress bar
+	TweenService:Create(progressBar, PROGRESS_TWEEN, { Size = UDim2.new(0, 0, 0, 2) }):Play()
+
+	local dismissed = false
+	local function dismiss()
+		if dismissed or not card.Parent then
 			return
 		end
-		local target = TweenService:Create(card, FADE_OUT, { BackgroundTransparency = 1 })
-		target:Play()
+		dismissed = true
+
+		local outTween = TweenService:Create(card, FADE_OUT, {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 80, 0, 0),
+		})
+		outTween:Play()
 		if stroke then
 			TweenService:Create(stroke, FADE_OUT, { Transparency = 1 }):Play()
 		end
-		TweenService:Create(bar, FADE_OUT, { BackgroundTransparency = 1 }):Play()
-		TweenService:Create(label, FADE_OUT, { TextTransparency = 1 }):Play()
 
-		target.Completed:Connect(function()
+		outTween.Completed:Connect(function()
 			if card.Parent then
 				card:Destroy()
 			end
@@ -158,7 +250,10 @@ function Notify:push(text, kind)
 				break
 			end
 		end
-	end)
+	end
+
+	closeBtn.MouseButton1Click:Connect(dismiss)
+	Util.delay(LIFETIME, dismiss)
 end
 
 function Notify:destroy()
