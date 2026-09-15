@@ -35,7 +35,7 @@ return function(tab, text, dim)
 	local height = measureHeight(content, width - HORIZONTAL_MARGIN)
 	local y = tab:nextSlot(height, GAP)
 
-	return Builder.label({
+	local lbl = Builder.label({
 		Size = UDim2.new(1, -HORIZONTAL_MARGIN, 0, height),
 		Position = UDim2.fromOffset(12, y),
 		Font = Theme.FontRegular,
@@ -46,4 +46,10 @@ return function(tab, text, dim)
 		TextColor3 = dim and Theme.TextDim or Theme.TextMain,
 		Parent = tab._page,
 	})
+
+	if tab.registerWidget then
+		tab:registerWidget(lbl, height, GAP, content)
+	end
+
+	return lbl
 end
