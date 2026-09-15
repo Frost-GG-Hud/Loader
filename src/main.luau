@@ -235,8 +235,19 @@ function Lib.CreateWindow(opts)
     closeButton.TextSize = 18
     closeButton.Parent = header
     closeButton.MouseButton1Click:Connect(function()
-        window.Visible = not window.Visible
+        screenGui:Destroy()
     end)
+
+    local minimizeButton = Instance.new("TextButton")
+    minimizeButton.Name = "Minimize"
+    minimizeButton.Size = UDim2.fromOffset(20, 20)
+    minimizeButton.Position = UDim2.new(1, -54, 0, 17)
+    minimizeButton.BackgroundTransparency = 1
+    minimizeButton.Text = "-"
+    minimizeButton.TextColor3 = Theme.TextDim
+    minimizeButton.Font = Enum.Font.GothamBold
+    minimizeButton.TextSize = 18
+    minimizeButton.Parent = header
 
     local tabList = Instance.new("ScrollingFrame")
     tabList.Name = "Tabs"
@@ -265,6 +276,50 @@ function Lib.CreateWindow(opts)
     local bgCorner = Instance.new("UICorner")
     bgCorner.CornerRadius = UDim.new(0, 12)
     bgCorner.Parent = contentBG
+
+    local normalSize = UDim2.fromOffset(size.X, size.Y)
+    local minimized = false
+    minimizeButton.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        tabList.Visible = not minimized
+        contentArea.Visible = not minimized
+        window.Size = minimized and UDim2.fromOffset(size.X, 54) or normalSize
+        minimizeButton.Text = minimized and "+" or "-"
+    end)
+
+    local resizeHandle = Instance.new("TextButton")
+    resizeHandle.Name = "ResizeHandle"
+    resizeHandle.Size = UDim2.fromOffset(20, 20)
+    resizeHandle.Position = UDim2.new(1, -20, 1, -20)
+    resizeHandle.BackgroundTransparency = 1
+    resizeHandle.Text = ""
+    resizeHandle.ZIndex = 8
+    resizeHandle.Parent = window
+
+    local resizing = false
+    local resizeStart
+    local resizeSize
+    resizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = true
+            resizeStart = input.Position
+            resizeSize = window.AbsoluteSize
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - resizeStart
+            local width = math.clamp(resizeSize.X + delta.X, 380, 760)
+            local height = math.clamp(resizeSize.Y + delta.Y, 260, 600)
+            window.Size = UDim2.fromOffset(width, height)
+            normalSize = window.Size
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = false
+        end
+    end)
 
     local dragObject
     header.InputBegan:Connect(function(input)
@@ -1026,13 +1081,17 @@ local function buildHub()
     if detected then
         local gameTab = hub.AddTab(detected.TabLabel)
         detected.Load(hub, gameTab)
-    else
+    end
+
+    local supported = hub.AddTab("Supported Games")
+    supported:AddLabel("Games currently listed in this hub", true)
+    for _, g in ipairs(supportedGames) do
+        supported:AddLabel(string.format("%s  |  PlaceId %s", g.Name, tostring(g.PlaceId)))
+    end
+    if not detected then
         local unsupported = hub.AddTab("Unsupported")
         unsupported:AddLabel("This game is not in the supported list yet.", true)
-        unsupported:AddLabel("Edit the supportedGames table in src/main.luau to add it.", true)
-        for _, g in ipairs(supportedGames) do
-            unsupported:AddLabel(string.format("  - %s (PlaceId %s)", g.Name, tostring(g.PlaceId)), true)
-        end
+        unsupported:AddLabel("Choose Supported Games to view the current list.", true)
     end
 
     hub.Select("Universal")
