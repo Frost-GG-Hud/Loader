@@ -704,7 +704,7 @@ local function buildKeyGui()
         keyState.ServerKey = fetchServerKey()
         if keyState.ServerKey == "" then
             status.TextColor3 = Theme.Danger
-            status.Text = "Could not load key list. Check your internet and retry."
+            status.Text = "Could not load the key list from GitHub. Check your internet and retry."
             return
         end
         local entered = normalizeKey(box.Text)
@@ -712,14 +712,21 @@ local function buildKeyGui()
         if entered ~= "" and entered == expected then
             keyState.Valid = true
             status.TextColor3 = Theme.Success
-            status.Text = "Key accepted. Loading hub..."
-            screenGui:Destroy()
-            coroutine.wrap(function()
-                buildHub()
-            end)()
+            status.Text = "Key accepted. Opening hub..."
+            waitSafe(0.2)
+            local okHub, hubErr = pcall(buildHub)
+            if okHub then
+                status.Text = "Key accepted. Opening hub..."
+                screenGui:Destroy()
+            else
+                keyState.Valid = false
+                status.TextColor3 = Theme.Danger
+                status.Text = "Hub error: " .. tostring(hubErr)
+                warn("[Frost] Hub failed: " .. tostring(hubErr))
+            end
         else
             status.TextColor3 = Theme.Danger
-            status.Text = "Invalid key. Run /key in our Discord to get the current one."
+            status.Text = "Invalid key (" .. #entered .. " chars entered). Run /key in our Discord for the current key."
         end
     end
 
