@@ -1,52 +1,38 @@
--- Egg and player ESP.
---
--- Bugs fixed from the original:
---  * Player ESP threw on every tick: `BoxHandleAdornment` exposes `Color3`, not
---    `Color` (that is a deprecated, hidden GuiBase3d property), so the loop died
---    immediately and no boxes ever appeared;
---  * toggling on/off/on quickly spawned duplicate loops. A single shared loop
---    now drives both highlight types;
---  * highlights were never removed when an egg left range, leaving stale ESP all
---    over the map. Tracked highlights are pruned each tick;
---  * the "ESP Draw Distance" slider was wired to an empty function. It now
---    actually bounds which eggs are highlighted.
+-- Visuals: Egg ESP with rarity tags, Player ESP with info, and Trap ESP.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
 local EggData = ctx.require("features/StealAnEgg/EggData")
 
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
-local TICK_INTERVAL = 0.65
-local EGG_HIGHLIGHT_NAME = "_FrostEggESP"
-local PLAYER_ADORNMENT_NAME = "_FrostPlayerESP"
-local PREDICTION_NAME = "_FrostPredict"
-local PREDICTION_LIFETIME = 5
-local PREDICTION_MARKER_OFFSET = 2
-
-local EGG_FILL = Color3.fromRGB(255, 204, 0)
-local EGG_OUTLINE = Color3.fromRGB(255, 238, 150)
-local PLAYER_FALLBACK_COLOR = Color3.fromRGB(235, 94, 94)
+local TICK_INTERVAL = 0.5
+local EGG_ESP_NAME = "_FrostEggESP"
+local PLAYER_ESP_NAME = "_FrostPlayerESP"
+local TRAP_ESP_NAME = "_FrostTrapESP"
 
 local Esp = {}
 Esp.__index = Esp
 
 function Esp.new(config)
 	local self = setmetatable({}, Esp)
-	self.notify = config.notify
-	self.range = config.range or 150
+	self.notify = config.notify or function() end
+	self.range = config.range or 250
 	self.eggsEnabled = false
 	self.playersEnabled = false
+	self.trapsEnabled = false
 	self.running = false
 	self.destroyed = false
-	self.eggHighlights = {}
-	self.playerBoxes = {}
+	self.eggItems = {}
+	self.playerItems = {}
+	self.trapItems = {}
 	return self
 end
 
 function Esp:_isActive()
-	return self.eggsEnabled or self.playersEnabled
+	return self.eggsEnabled or self.playersEnabled or self.trapsEnabled
 end
 
 function Esp:_ensureLoop()
@@ -70,146 +56,302 @@ function Esp:_tick()
 	if self.eggsEnabled then
 		self:_tickEggs()
 	else
-		self:_clearEggHighlights()
+		self:_clearEggEsp()
 	end
 
 	if self.playersEnabled then
 		self:_tickPlayers()
 	else
-		self:_clearPlayerBoxes()
+		self:_clearPlayerEsp()
+	end
+
+	if self.trapsEnabled then
+		self:_tickTraps()
+	else
+		self:_clearTrapEsp()
 	end
 end
 
+-- ----------------------------------------------------------------- Egg ESP
 function Esp:_tickEggs()
-	local inRange = {}
-	for _, entry in ipairs(EggData.nearby(self.range)) do
-		inRange[entry.instance] = true
+	local activeSet = {}
 
-		if not entry.instance:FindFirstChild(EGG_HIGHLIGHT_NAME) then
+	for _, entry in ipairs(EggData.nearby(self.range)) do
+		local inst = entry.instance
+		activeSet[inst] = true
+
+		local existing = self.eggItems[inst]
+		if existing and existing.billboard and existing.billboard.Parent then
+			-- Update distance label
+			existing.distLabel.Text = string.format("%.0f studs", entry.distance)
+		else
+			-- Create new highlight & billboard
 			local highlight = Instance.new("Highlight")
-			highlight.Name = EGG_HIGHLIGHT_NAME
-			highlight.FillColor = EGG_FILL
-			highlight.FillTransparency = 0.55
-			highlight.OutlineColor = EGG_OUTLINE
+			highlight.Name = EGG_ESP_NAME
+			highlight.FillColor = entry.rarityColor
+			highlight.FillTransparency = 0.5
+			highlight.OutlineColor = entry.rarityColor
 			highlight.OutlineTransparency = 0
 			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-			highlight.Adornee = entry.instance
-			highlight.Parent = entry.instance
-			table.insert(self.eggHighlights, {
-				instance = entry.instance,
+			highlight.Adornee = inst
+			highlight.Parent = inst
+
+			local billboard = Instance.new("BillboardGui")
+			billboard.Name = EGG_ESP_NAME
+			billboard.Size = UDim2.new(0, 140, 0, 36)
+			billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+			billboard.AlwaysOnTop = true
+			billboard.Adornee = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
+			billboard.Parent = inst
+
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.new(1, 0, 0, 18)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextSize = 12
+			nameLabel.TextColor3 = entry.rarityColor
+			nameLabel.TextStrokeTransparency = 0.3
+			nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			nameLabel.Text = string.format("[%s] %s", string.upper(entry.rarity), entry.name)
+			nameLabel.Parent = billboard
+
+			local distLabel = Instance.new("TextLabel")
+			distLabel.Size = UDim2.new(1, 0, 0, 14)
+			distLabel.Position = UDim2.fromOffset(0, 18)
+			distLabel.BackgroundTransparency = 1
+			distLabel.Font = Enum.Font.Gotham
+			distLabel.TextSize = 10
+			distLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+			distLabel.TextStrokeTransparency = 0.3
+			distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			distLabel.Text = string.format("%.0f studs", entry.distance)
+			distLabel.Parent = billboard
+
+			self.eggItems[inst] = {
 				highlight = highlight,
-			})
+				billboard = billboard,
+				distLabel = distLabel,
+			}
 		end
 	end
 
-	-- Prune anything that died, left range, or was removed by the game.
-	local kept = {}
-	for _, tracked in ipairs(self.eggHighlights) do
-		local alive = tracked.instance.Parent ~= nil and tracked.highlight.Parent ~= nil
-		if alive and inRange[tracked.instance] then
-			table.insert(kept, tracked)
-		else
+	-- Clean up stale items
+	for inst, item in pairs(self.eggItems) do
+		if not activeSet[inst] or not inst.Parent then
 			pcall(function()
-				tracked.highlight:Destroy()
+				if item.highlight then item.highlight:Destroy() end
+				if item.billboard then item.billboard:Destroy() end
 			end)
+			self.eggItems[inst] = nil
 		end
 	end
-	self.eggHighlights = kept
 end
 
-function Esp:_clearEggHighlights()
-	for _, tracked in ipairs(self.eggHighlights) do
+function Esp:_clearEggEsp()
+	for inst, item in pairs(self.eggItems) do
 		pcall(function()
-			tracked.highlight:Destroy()
+			if item.highlight then item.highlight:Destroy() end
+			if item.billboard then item.billboard:Destroy() end
 		end)
 	end
-	self.eggHighlights = {}
+	self.eggItems = {}
 end
 
+-- --------------------------------------------------------------- Player ESP
 function Esp:_tickPlayers()
+	local root = Util.getRootPart()
+	local myPos = root and root.Position or Vector3.zero
+
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer and player.Character then
-			local root = player.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				local existing = self.playerBoxes[player]
-				if existing and existing.Parent == root then
-					-- Already tracking this character.
+			local char = player.Character
+			local pRoot = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
+
+			if pRoot and hum and hum.Health > 0 then
+				local existing = self.playerItems[player]
+				local dist = (pRoot.Position - myPos).Magnitude
+
+				if existing and existing.billboard and existing.billboard.Parent then
+					existing.infoLabel.Text = string.format("%.0f studs | HP: %d%%", dist, math.round((hum.Health / hum.MaxHealth) * 100))
 				else
 					if existing then
 						pcall(function()
-							existing:Destroy()
+							if existing.box then existing.box:Destroy() end
+							if existing.billboard then existing.billboard:Destroy() end
 						end)
 					end
 
-					local color = PLAYER_FALLBACK_COLOR
-					if player.TeamColor then
-						color = player.TeamColor.Color
-					end
+					local color = player.TeamColor and player.TeamColor.Color or Color3.fromRGB(255, 75, 75)
 
 					local box = Instance.new("BoxHandleAdornment")
-					box.Name = PLAYER_ADORNMENT_NAME
-					box.Size = root.Size + Vector3.new(1.6, 1.6, 1.6)
+					box.Name = PLAYER_ESP_NAME
+					box.Size = pRoot.Size + Vector3.new(1.8, 2.5, 1.8)
 					box.Color3 = color
 					box.AlwaysOnTop = true
 					box.Transparency = 0.55
-					box.Adornee = root
-					box.Parent = root
-					self.playerBoxes[player] = box
+					box.Adornee = pRoot
+					box.Parent = pRoot
+
+					local billboard = Instance.new("BillboardGui")
+					billboard.Name = PLAYER_ESP_NAME
+					billboard.Size = UDim2.new(0, 130, 0, 36)
+					billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+					billboard.AlwaysOnTop = true
+					billboard.Adornee = pRoot
+					billboard.Parent = pRoot
+
+					local nameLabel = Instance.new("TextLabel")
+					nameLabel.Size = UDim2.new(1, 0, 0, 18)
+					nameLabel.BackgroundTransparency = 1
+					nameLabel.Font = Enum.Font.GothamBold
+					nameLabel.TextSize = 12
+					nameLabel.TextColor3 = color
+					nameLabel.TextStrokeTransparency = 0.3
+					nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+					nameLabel.Text = player.DisplayName
+					nameLabel.Parent = billboard
+
+					local infoLabel = Instance.new("TextLabel")
+					infoLabel.Size = UDim2.new(1, 0, 0, 14)
+					infoLabel.Position = UDim2.fromOffset(0, 18)
+					infoLabel.BackgroundTransparency = 1
+					infoLabel.Font = Enum.Font.Gotham
+					infoLabel.TextSize = 10
+					infoLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+					infoLabel.TextStrokeTransparency = 0.3
+					infoLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+					infoLabel.Text = string.format("%.0f studs | HP: %d%%", dist, math.round((hum.Health / hum.MaxHealth) * 100))
+					infoLabel.Parent = billboard
+
+					self.playerItems[player] = {
+						box = box,
+						billboard = billboard,
+						infoLabel = infoLabel,
+					}
 				end
 			end
 		end
 	end
 
-	for player, box in pairs(self.playerBoxes) do
-		local character = player.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if not box.Parent or not root or box.Parent ~= root then
+	for player, item in pairs(self.playerItems) do
+		local char = player.Character
+		local pRoot = char and char:FindFirstChild("HumanoidRootPart")
+		if not player.Parent or not char or not pRoot or not pRoot.Parent then
 			pcall(function()
-				box:Destroy()
+				if item.box then item.box:Destroy() end
+				if item.billboard then item.billboard:Destroy() end
 			end)
-			self.playerBoxes[player] = nil
+			self.playerItems[player] = nil
 		end
 	end
 end
 
-function Esp:_clearPlayerBoxes()
-	for player, box in pairs(self.playerBoxes) do
+function Esp:_clearPlayerEsp()
+	for player, item in pairs(self.playerItems) do
 		pcall(function()
-			box:Destroy()
+			if item.box then item.box:Destroy() end
+			if item.billboard then item.billboard:Destroy() end
 		end)
-		self.playerBoxes[player] = nil
+	end
+	self.playerItems = {}
+end
+
+-- ----------------------------------------------------------------- Trap ESP
+function Esp:_tickTraps()
+	local activeTraps = {}
+	local trapList = CollectionService:GetTagged("PlacedTrap")
+
+	for _, trap in ipairs(trapList) do
+		if trap and trap.Parent then
+			activeTraps[trap] = true
+			if not self.trapItems[trap] then
+				local part = trap:IsA("BasePart") and trap or trap:FindFirstChildWhichIsA("BasePart", true)
+				if part then
+					local highlight = Instance.new("Highlight")
+					highlight.Name = TRAP_ESP_NAME
+					highlight.FillColor = Color3.fromRGB(255, 60, 60)
+					highlight.FillTransparency = 0.4
+					highlight.OutlineColor = Color3.fromRGB(255, 120, 120)
+					highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+					highlight.Adornee = trap
+					highlight.Parent = trap
+
+					local billboard = Instance.new("BillboardGui")
+					billboard.Name = TRAP_ESP_NAME
+					billboard.Size = UDim2.new(0, 90, 0, 20)
+					billboard.StudsOffset = Vector3.new(0, 2, 0)
+					billboard.AlwaysOnTop = true
+					billboard.Adornee = part
+					billboard.Parent = trap
+
+					local label = Instance.new("TextLabel")
+					label.Size = UDim2.new(1, 0, 1, 0)
+					label.BackgroundTransparency = 1
+					label.Font = Enum.Font.GothamBold
+					label.TextSize = 11
+					label.TextColor3 = Color3.fromRGB(255, 80, 80)
+					label.TextStrokeTransparency = 0.3
+					label.Text = "⚠️ TRAP"
+					label.Parent = billboard
+
+					self.trapItems[trap] = { highlight = highlight, billboard = billboard }
+				end
+			end
+		end
+	end
+
+	for trap, item in pairs(self.trapItems) do
+		if not activeTraps[trap] or not trap.Parent then
+			pcall(function()
+				if item.highlight then item.highlight:Destroy() end
+				if item.billboard then item.billboard:Destroy() end
+			end)
+			self.trapItems[trap] = nil
+		end
 	end
 end
 
-function Esp:setEggs(enabled)
-	enabled = enabled == true
-	if self.eggsEnabled == enabled then
-		return
+function Esp:_clearTrapEsp()
+	for trap, item in pairs(self.trapItems) do
+		pcall(function()
+			if item.highlight then item.highlight:Destroy() end
+			if item.billboard then item.billboard:Destroy() end
+		end)
 	end
-	self.eggsEnabled = enabled
+	self.trapItems = {}
+end
 
-	if enabled then
+function Esp:setEggs(enabled)
+	self.eggsEnabled = enabled == true
+	if self.eggsEnabled then
 		self:_ensureLoop()
-		self.notify("Egg ESP enabled (range " .. self.range .. ")", "success")
+		self.notify("Egg ESP enabled", "success")
 	else
-		self:_clearEggHighlights()
+		self:_clearEggEsp()
 		self.notify("Egg ESP disabled", "info")
 	end
 end
 
 function Esp:setPlayers(enabled)
-	enabled = enabled == true
-	if self.playersEnabled == enabled then
-		return
-	end
-	self.playersEnabled = enabled
-
-	if enabled then
+	self.playersEnabled = enabled == true
+	if self.playersEnabled then
 		self:_ensureLoop()
 		self.notify("Player ESP enabled", "success")
 	else
-		self:_clearPlayerBoxes()
+		self:_clearPlayerEsp()
 		self.notify("Player ESP disabled", "info")
+	end
+end
+
+function Esp:setTraps(enabled)
+	self.trapsEnabled = enabled == true
+	if self.trapsEnabled then
+		self:_ensureLoop()
+		self.notify("Trap ESP enabled", "success")
+	else
+		self:_clearTrapEsp()
+		self.notify("Trap ESP disabled", "info")
 	end
 end
 
@@ -217,78 +359,17 @@ function Esp:setRange(value)
 	self.range = math.max(10, tonumber(value) or self.range)
 end
 
--- Temporary billboard markers, useful for spotting an egg before committing.
-function Esp:predict()
-	local nearby = EggData.nearby(self.range)
-	local marked = 0
-
-	for _, entry in ipairs(nearby) do
-		local position = entry.position
-		if position then
-			marked = marked + 1
-
-			local marker = Instance.new("Part")
-			marker.Name = PREDICTION_NAME
-			marker.Anchored = true
-			marker.CanCollide = false
-			marker.CanQuery = false
-			marker.CanTouch = false
-			marker.Transparency = 1
-			marker.Size = Vector3.new(1, 1, 1)
-			marker.CFrame = CFrame.new(position + Vector3.new(0, PREDICTION_MARKER_OFFSET, 0))
-			marker.Parent = workspace
-
-			local billboard = Instance.new("BillboardGui")
-			billboard.Name = PREDICTION_NAME
-			billboard.Size = UDim2.new(0, 96, 0, 22)
-			billboard.StudsOffset = Vector3.new(0, 2, 0)
-			billboard.AlwaysOnTop = true
-			billboard.Parent = marker
-
-			local label = Instance.new("TextLabel")
-			label.Size = UDim2.new(1, 0, 1, 0)
-			label.BackgroundTransparency = 0.4
-			label.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-			label.TextColor3 = EGG_FILL
-			label.Font = Enum.Font.GothamBold
-			label.TextSize = 12
-			label.Text = string.format("Egg  %.0f studs", entry.distance)
-			label.Parent = billboard
-
-			Util.delay(PREDICTION_LIFETIME, function()
-				if marker.Parent then
-					marker:Destroy()
-				end
-			end)
-		end
-	end
-
-	return marked
-end
-
-function Esp:countHighlights()
-	return #self.eggHighlights, next(self.playerBoxes) ~= nil
-end
-
 function Esp:clear()
-	self:_clearEggHighlights()
-	self:_clearPlayerBoxes()
-
-	for _, descendant in ipairs(workspace:GetDescendants()) do
-		if descendant.Name == PREDICTION_NAME then
-			if descendant:IsA("Part") or descendant:IsA("BillboardGui") then
-				pcall(function()
-					descendant:Destroy()
-				end)
-			end
-		end
-	end
+	self:_clearEggEsp()
+	self:_clearPlayerEsp()
+	self:_clearTrapEsp()
 end
 
 function Esp:destroy()
 	self.destroyed = true
 	self.eggsEnabled = false
 	self.playersEnabled = false
+	self.trapsEnabled = false
 	self:clear()
 end
 
