@@ -22,6 +22,7 @@ function Tab.new(config)
 	self._pushNotify = config.notify
 	self._contentWidth = config.contentWidth
 	self._cleanups = {}
+	self._widgets = {}
 	self._y = 4
 
 	self._btn = Builder.button({
@@ -128,11 +129,56 @@ function Tab:_trackCleanup(fn)
 	table.insert(self._cleanups, fn)
 end
 
+function Tab:registerWidget(card, height, gap, filterText, getHeightFn)
+	local entry = {
+		card = card,
+		height = height,
+		gap = gap or 8,
+		filterText = string.lower(filterText or ""),
+		visible = true,
+		getHeight = getHeightFn,
+	}
+	table.insert(self._widgets, entry)
+	return entry
+end
+
+function Tab:relayout()
+	local y = 4
+	for _, item in ipairs(self._widgets) do
+		if item.card and item.card.Parent then
+			if item.visible then
+				item.card.Visible = true
+				y = y + (item.gap or 8)
+				item.card.Position = UDim2.new(item.card.Position.X.Scale, item.card.Position.X.Offset, 0, y)
+				local h = (item.getHeight and item.getHeight()) or item.height or item.card.Size.Y.Offset
+				y = y + h
+			else
+				item.card.Visible = false
+			end
+		end
+	end
+	self._y = y
+	self._page.CanvasSize = UDim2.new(0, 0, 0, y + BOTTOM_PADDING)
+end
+
+function Tab:filter(query)
+	query = string.lower(string.gsub(tostring(query or ""), "^%s*(.-)%s*$", "%1"))
+	for _, item in ipairs(self._widgets) do
+		if query == "" then
+			item.visible = true
+		else
+			item.visible = string.find(item.filterText, query, 1, true) ~= nil
+		end
+	end
+	self:relayout()
+end
+
 function Tab:Clear()
 	for _, fn in ipairs(self._cleanups) do
 		pcall(fn)
 	end
 	self._cleanups = {}
+	self._widgets = {}
 	Util.clearChildren(self._page)
 	self._y = 4
 	self._page.CanvasSize = UDim2.new(0, 0, 0, BOTTOM_PADDING)
