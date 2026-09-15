@@ -1,5 +1,5 @@
--- Wires the Steal An Egg modules into Zeroin-style category tabs.
--- Uses 2-column grid layout for toggles and inputs, ZERO teleportation, speed 1-1000 bypass.
+-- Wires the Steal An Egg modules into OMG HUB style category tabs (Light Blue Accent).
+-- 2-column grid layout, zero teleportation, Pathfinding wall avoidance, and min money filter.
 
 local ctx = ...
 local EggData = ctx.require("features/StealAnEgg/EggData")
@@ -33,8 +33,14 @@ return function(hub, tabs, cleanup)
 	end
 	cleanup.track(teardown)
 
-	-- ------------------------------------------------------------- MAIN (ZEROIN STYLE)
-	mainTab:AddSection("Auto Steal & Protection")
+	-- ------------------------------------------------------------- MAIN (OMG HUB STYLE)
+	mainTab:AddSection("Auto Steal & Quick Actions")
+
+	mainTab:AddButton("⚡ Apply Recommended Speed (700) >", function()
+		movement:setSpeed(700)
+		movement:toggleSpeedBypass(true)
+		notify("Applied recommended speed: 700", "success")
+	end)
 
 	-- 2-Column Grid Row 1: Auto Steal | Auto Treadmill
 	mainTab:AddToggleGrid(
@@ -100,7 +106,7 @@ return function(hub, tabs, cleanup)
 
 	mainTab:AddSection("Movement Speed & Bypass")
 
-	mainTab:AddSlider("Fine-Tune Speed", 1, 1000, 60, function(value)
+	mainTab:AddSlider("Movement Speed (1 - 1000)", 1, 1000, 60, function(value)
 		movement:setSpeed(value)
 	end, 1)
 
@@ -122,8 +128,8 @@ return function(hub, tabs, cleanup)
 		movement:equipBestPets()
 	end)
 
-	-- -------------------------------------------------------------------- ESP
-	espTab:AddSection("ESP & Visuals")
+	-- -------------------------------------------------------------------- ESPs
+	espTab:AddSection("ESPs")
 	espTab:AddLabel("Above: Money / Sec  •  Below: (Egg Name) Pet Name", true)
 
 	espTab:AddToggleGrid(
@@ -158,8 +164,8 @@ return function(hub, tabs, cleanup)
 		notify("Cleared all ESP highlights", "info")
 	end, true)
 
-	-- --------------------------------------------------- DEFENSE & BYPASSES
-	defenseTab:AddSection("Defense & Bypasses")
+	-- --------------------------------------------------- PROTECTION
+	defenseTab:AddSection("Protection & Bypasses")
 
 	defenseTab:AddToggleGrid(
 		{
