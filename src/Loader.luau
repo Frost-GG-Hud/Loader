@@ -1,8 +1,9 @@
--- Point this at your site (free host like Render):
---   local URL = "https://frost.onrender.com/api/script"
--- Or skip this file entirely and paste the one-liner:
---   loadstring(game:HttpGet("https://frost.onrender.com/api/script"))()
-local URL = "https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/src/main.luau"
+print("[Frost] Loader started")
+
+local HOSTS = {
+    "https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/src/main.luau",
+    "https://cdn.jsdelivr.net/gh/Frost-GG-Hud/Loader@main/src/main.luau",
+}
 
 local function fetch(url)
     local svc = game:GetService("HttpService")
@@ -41,9 +42,19 @@ local function fetch(url)
     return nil
 end
 
-local raw = fetch(URL)
+local raw = nil
+local firstErr = nil
+for _, url in ipairs(HOSTS) do
+    print("[Frost] Trying " .. url)
+    raw = fetch(url)
+    if raw then
+        print("[Frost] Fetched " .. #raw .. " chars from " .. url)
+        break
+    end
+end
+
 if not raw then
-    warn("[Frost] Could not fetch the script. Check internet + that the repo is public.")
+    warn("[Frost] COULD NOT FETCH the script from any URL. This environment cannot do HTTP.")
     return
 end
 
@@ -52,8 +63,10 @@ if not chunk then
     warn("[Frost] Script failed to compile: " .. tostring(loadErr))
     return
 end
+print("[Frost] Compiled. Running main.luau...")
 
 local ok, runErr = pcall(chunk)
 if not ok then
     warn("[Frost] Script failed to run: " .. tostring(runErr))
 end
+print("[Frost] Loader done")
