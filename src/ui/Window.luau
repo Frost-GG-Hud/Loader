@@ -136,10 +136,45 @@ function Window:_buildHeader(opts)
 end
 
 function Window:_buildBody()
+	local Config = ctx.require("core/Config")
+
+	-- Search Bar in Sidebar (Zeroin style)
+	local searchBox = Builder.frame({
+		Name = "SearchBox",
+		Size = UDim2.new(0, M.TabRailWidth - 4, 0, 28),
+		Position = UDim2.fromOffset(8, M.ContentTop),
+		BackgroundColor3 = Theme.Surface,
+		ZIndex = 6,
+		Parent = self.window,
+	})
+	Builder.corner(searchBox, 7)
+	Builder.stroke(searchBox, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.3,
+	})
+
+	Builder.new("TextBox", {
+		Name = "SearchInput",
+		Size = UDim2.new(1, -12, 1, 0),
+		Position = UDim2.fromOffset(8, 0),
+		BackgroundTransparency = 1,
+		Font = Theme.FontRegular,
+		TextSize = 11,
+		Text = "",
+		PlaceholderText = "🔍 Search...",
+		PlaceholderColor3 = Theme.TextMuted,
+		TextColor3 = Theme.TextMain,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 7,
+		Parent = searchBox,
+	})
+
 	self.tabList = Builder.new("ScrollingFrame", {
 		Name = "Tabs",
-		Size = UDim2.new(0, M.TabRailWidth, 1, -(M.ContentTop + 12)),
-		Position = UDim2.fromOffset(10, M.ContentTop),
+		Size = UDim2.new(0, M.TabRailWidth, 1, -(M.ContentTop + 90)),
+		Position = UDim2.fromOffset(8, M.ContentTop + 34),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 0,
@@ -151,12 +186,73 @@ function Window:_buildBody()
 
 	local tabListLayout = Builder.new("UIListLayout", {
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		Padding = UDim.new(0, 6),
+		Padding = UDim.new(0, 5),
 		Parent = self.tabList,
 	})
 	tabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 		self.tabList.CanvasSize = UDim2.new(0, 0, 0, tabListLayout.AbsoluteContentSize.Y + 12)
 	end)
+
+	-- Bottom Discord Banner Card (Zeroin style)
+	local discordCard = Builder.button({
+		Name = "DiscordBanner",
+		Size = UDim2.new(0, M.TabRailWidth - 4, 0, 42),
+		Position = UDim2.new(0, 8, 1, -48),
+		BackgroundColor3 = Theme.Surface,
+		ZIndex = 6,
+		Parent = self.window,
+	})
+	Builder.corner(discordCard, 8)
+	Builder.stroke(discordCard, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.4,
+	})
+
+	Builder.label({
+		Size = UDim2.fromOffset(20, 20),
+		Position = UDim2.fromOffset(8, 11),
+		Text = "💬",
+		TextSize = 14,
+		ZIndex = 7,
+		Parent = discordCard,
+	})
+
+	Builder.label({
+		Size = UDim2.new(1, -34, 0, 16),
+		Position = UDim2.fromOffset(32, 6),
+		Font = Theme.FontBold,
+		TextSize = 11,
+		Text = "Discord",
+		TextColor3 = Theme.TextMain,
+		ZIndex = 7,
+		Parent = discordCard,
+	})
+
+	Builder.label({
+		Size = UDim2.new(1, -34, 0, 12),
+		Position = UDim2.fromOffset(32, 22),
+		Font = Theme.FontRegular,
+		TextSize = 9,
+		Text = "discord.gg/TWnmPCxxSY",
+		TextColor3 = Theme.TextDim,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 7,
+		Parent = discordCard,
+	})
+
+	discordCard.MouseButton1Click:Connect(function()
+		local setclip = setclipboard or toclipboard or writeclipboard
+		if setclip then
+			setclip(Config.DiscordInvite)
+			self:notify("Discord link copied to clipboard!", "success")
+		else
+			self:notify("Discord: " .. Config.DiscordInvite, "info")
+		end
+	end)
+
+	self.searchBox = searchBox
+	self.discordCard = discordCard
 
 	self.content = Builder.frame({
 		Name = "Content",
@@ -343,6 +439,8 @@ function Window:setMinimized(minimized)
 
 	self.tabList.Visible = not minimized
 	self.content.Visible = not minimized
+	if self.searchBox then self.searchBox.Visible = not minimized end
+	if self.discordCard then self.discordCard.Visible = not minimized end
 	self.resizeHandle.Visible = not minimized
 	self.header.setMinimized(minimized)
 
