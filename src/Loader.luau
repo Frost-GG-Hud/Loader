@@ -1,5 +1,41 @@
 print("[Frost] Loader started")
 
+local boot = Instance.new("ScreenGui")
+boot.Name = "FrostBoot"
+boot.ResetOnSpawn = false
+if gethui then
+    pcall(function()
+        boot.Parent = gethui()
+    end)
+end
+if not boot.Parent then
+    pcall(function()
+        boot.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui", 15)
+    end)
+end
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(0, 460, 0, 140)
+label.Position = UDim2.new(0.5, -230, 0, 30)
+label.AnchorPoint = Vector2.new(0.5, 0)
+label.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+label.BackgroundTransparency = 0.05
+label.BorderSizePixel = 0
+label.TextColor3 = Color3.fromRGB(240, 240, 245)
+label.Font = Enum.Font.GothamBold
+label.TextSize = 16
+label.TextWrapped = true
+label.Text = "Frost\nLoading script..."
+label.Parent = boot
+
+local function status(text, color)
+    print("[Frost] " .. text)
+    label.TextColor3 = color or Color3.fromRGB(240, 240, 245)
+    label.Text = "Frost - v2\n" .. text
+end
+
+status("Trying to reach GitHub...")
+
 local HOSTS = {
     "https://raw.githubusercontent.com/Frost-GG-Hud/Loader/main/src/main.luau",
     "https://cdn.jsdelivr.net/gh/Frost-GG-Hud/Loader@main/src/main.luau",
@@ -43,30 +79,32 @@ local function fetch(url)
 end
 
 local raw = nil
-local firstErr = nil
 for _, url in ipairs(HOSTS) do
-    print("[Frost] Trying " .. url)
+    status("Trying: " .. url)
     raw = fetch(url)
     if raw then
-        print("[Frost] Fetched " .. #raw .. " chars from " .. url)
+        status("Fetched " .. #raw .. " chars. Compiling...")
         break
     end
 end
 
 if not raw then
-    warn("[Frost] COULD NOT FETCH the script from any URL. This environment cannot do HTTP.")
+    status("FAILED to fetch the script.\nYour HTTP access to GitHub/jsDelivr is blocked.", Color3.fromRGB(235, 90, 90))
     return
 end
 
 local chunk, loadErr = loadstring(raw)
 if not chunk then
-    warn("[Frost] Script failed to compile: " .. tostring(loadErr))
+    status("Compile error:\n" .. tostring(loadErr), Color3.fromRGB(235, 90, 90))
     return
 end
-print("[Frost] Compiled. Running main.luau...")
+status("Compiled. Running...")
 
 local ok, runErr = pcall(chunk)
 if not ok then
-    warn("[Frost] Script failed to run: " .. tostring(runErr))
+    status("Run error:\n" .. tostring(runErr), Color3.fromRGB(235, 90, 90))
+    return
 end
-print("[Frost] Loader done")
+
+boot:Destroy()
+print("[Frost] Loader done - main.luau took over the screen")
