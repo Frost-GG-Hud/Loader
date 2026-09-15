@@ -756,6 +756,22 @@ local function buildHub()
     print("[Frost] Building hub")
     local supportedGames = {
         {
+            Name = "Steal An Egg",
+            PlaceId = 107778070777162,
+            TabLabel = "Steal An Egg",
+            Load = function(hub, tab)
+                tab:AddButton("Teleport to Base", function()
+                    local char = getCharacter()
+                    local root = getRootPart(char)
+                    local base = workspace:FindFirstChild("Base") or workspace:FindFirstChild("Baseplate")
+                    if base and root then
+                        root.CFrame = base.CFrame + Vector3.new(0, 5, 0)
+                    end
+                end, true)
+                tab:AddLabel("Add your Steal An Egg features here.", true)
+            end,
+        },
+        {
             Name = "Slap Battles",
             PlaceId = 6403373529,
             TabLabel = "Slap Battles",
