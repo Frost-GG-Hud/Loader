@@ -11,6 +11,7 @@ local ToggleWidget = ctx.require("ui/widgets/Toggle")
 local SliderWidget = ctx.require("ui/widgets/Slider")
 local SectionWidget = ctx.require("ui/widgets/Section")
 local TextInputWidget = ctx.require("ui/widgets/TextInput")
+local GridRowWidget = ctx.require("ui/widgets/GridRow")
 
 return function(tab)
 	function tab:AddSection(title)
@@ -37,5 +38,5 @@ return function(tab)
 		return TextInputWidget(self, labelText, placeholder, default, onCommit)
 	end
 
-	return tab
+	return GridRowWidget(tab)
 end
