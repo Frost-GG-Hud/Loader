@@ -119,8 +119,8 @@ function Window:_buildWindow(width, height)
 		Transparency = 0.25,
 	})
 end
-
 function Window:_buildHeader(opts)
+	self.searchQuery = ""
 	self.header = Header.new({
 		parent = self.window,
 		title = opts.Title or "Frost",
@@ -131,6 +131,13 @@ function Window:_buildHeader(opts)
 		end,
 		onMinimize = function()
 			self:setMinimized(not self.minimized)
+		end,
+		onSearchChanged = function(query)
+			self.searchQuery = query
+			local currentTab = self:getTab(self.activeTabName)
+			if currentTab and currentTab.filter then
+				currentTab:filter(query)
+			end
 		end,
 	})
 end
@@ -391,7 +398,11 @@ end
 
 function Window:select(name)
 	for _, tab in ipairs(self.tabs) do
-		tab:setActive(tab:getName() == name)
+		local isActive = tab:getName() == name
+		tab:setActive(isActive)
+		if isActive and self.searchQuery and self.searchQuery ~= "" and tab.filter then
+			tab:filter(self.searchQuery)
+		end
 	end
 	self.activeTabName = name
 end
