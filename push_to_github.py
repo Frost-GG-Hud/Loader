@@ -39,6 +39,7 @@ FILES = [
     "src/ui/widgets/Button.luau",
     "src/ui/widgets/Init.luau",
     "src/ui/widgets/Label.luau",
+    "src/ui/widgets/Section.luau",
     "src/ui/widgets/Slider.luau",
     "src/ui/widgets/Toggle.luau",
     "README.md",
