@@ -15,10 +15,7 @@ BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
 FILES = [
     "bot.py",
-    "server.py",
     "push_to_github.py",
-    "render.yaml",
-    "Procfile",
     "requirements.txt",
     "keys.json",
     "src/main.luau",
@@ -26,6 +23,13 @@ FILES = [
     "README.md",
     ".env.example",
     ".gitignore",
+]
+
+# Files that used to exist but are no longer part of the project (website hosting removed).
+DELETE_FILES = [
+    "server.py",
+    "render.yaml",
+    "Procfile",
 ]
 
 HEADERS = {
@@ -69,6 +73,23 @@ def main():
             print(f"OK   {path}")
         else:
             print(f"FAIL {path}: {put.status_code} {put.text[:200]}")
+
+    for path in DELETE_FILES:
+        url = f"https://api.github.com/repos/{REPO}/contents/{path}"
+        existing = requests.get(url, headers=HEADERS, timeout=30)
+        if existing.status_code == 404:
+            print(f"SKIP delete {path} (not on GitHub)")
+            continue
+        sha = existing.json().get("sha")
+        if not sha:
+            print(f"SKIP delete {path} (no sha)")
+            continue
+        payload = {"message": f"Remove {path} (website hosting removed)", "sha": sha, "branch": BRANCH}
+        del_resp = requests.delete(url, headers=HEADERS, json=payload, timeout=30)
+        if del_resp.status_code in (200, 204):
+            print(f"DELETED {path}")
+        else:
+            print(f"FAIL delete {path}: {del_resp.status_code} {del_resp.text[:200]}")
 
 
 if __name__ == "__main__":
