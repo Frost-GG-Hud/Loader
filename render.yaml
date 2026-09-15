@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: frost
+    runtime: python
+    buildCommand: ""
+    startCommand: python server.py
+    plan: free
+    envVars:
+      - key: SITE_ADMIN_TOKEN
+        generateValue: true
