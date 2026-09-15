@@ -29,14 +29,15 @@ function Tab.new(config)
 		Size = UDim2.new(1, -4, 0, BUTTON_HEIGHT),
 		Position = UDim2.fromOffset(2, (config.index - 1) * (BUTTON_HEIGHT + BUTTON_GAP)),
 		BackgroundColor3 = Theme.SurfaceAlt,
-		Text = config.name,
-		Font = Theme.FontRegular,
+		Text = "  " .. config.name,
+		Font = Theme.FontMedium,
 		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		Parent = config.buttonParent,
 	})
-	Builder.corner(self._btn, 8)
+	Builder.corner(self._btn, 7)
 
 	self._page = Builder.new("ScrollingFrame", {
 		Name = config.name,
