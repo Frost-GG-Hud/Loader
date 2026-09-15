@@ -98,6 +98,14 @@ local function drawCircle(label, parent, r, color)
     return frame
 end
 
+local function isDragInput(inputType)
+    return inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch
+end
+
+local function isMoveInput(inputType)
+    return inputType == Enum.UserInputType.MouseMovement or inputType == Enum.UserInputType.Touch
+end
+
 local Theme = {
     Background = Color3.fromRGB(6, 17, 14),
     Window = Color3.fromRGB(10, 27, 22),
@@ -217,12 +225,19 @@ function Lib.CreateWindow(opts)
     metaLabel.BackgroundTransparency = 1
     metaLabel.Size = UDim2.new(1, -110, 0, 16)
     metaLabel.Position = UDim2.fromOffset(38, 31)
-    metaLabel.Text = "Premium script hub"
+    metaLabel.Text = "Press RightShift to hide/show"
     metaLabel.TextColor3 = Theme.TextDim
     metaLabel.TextXAlignment = Enum.TextXAlignment.Left
     metaLabel.Font = Enum.Font.Gotham
     metaLabel.TextSize = 10
     metaLabel.Parent = header
+
+    local destroyCallbacks = {}
+    local function runDestroyCallbacks()
+        for _, fn in ipairs(destroyCallbacks) do
+            pcall(fn)
+        end
+    end
 
     local closeButton = Instance.new("TextButton")
     closeButton.Name = "Close"
@@ -235,6 +250,7 @@ function Lib.CreateWindow(opts)
     closeButton.TextSize = 18
     closeButton.Parent = header
     closeButton.MouseButton1Click:Connect(function()
+        runDestroyCallbacks()
         screenGui:Destroy()
     end)
 
@@ -296,27 +312,39 @@ function Lib.CreateWindow(opts)
     resizeHandle.ZIndex = 8
     resizeHandle.Parent = window
 
+    local resizeGrip = Instance.new("Frame")
+    resizeGrip.Size = UDim2.fromOffset(10, 10)
+    resizeGrip.Position = UDim2.new(1, -14, 1, -14)
+    resizeGrip.BackgroundColor3 = accent
+    resizeGrip.BackgroundTransparency = 0.4
+    resizeGrip.BorderSizePixel = 0
+    resizeGrip.ZIndex = 8
+    resizeGrip.Parent = window
+    local resizeGripCorner = Instance.new("UICorner")
+    resizeGripCorner.CornerRadius = UDim.new(0, 3)
+    resizeGripCorner.Parent = resizeGrip
+
     local resizing = false
     local resizeStart
     local resizeSize
     resizeHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if isDragInput(input.UserInputType) then
             resizing = true
             resizeStart = input.Position
             resizeSize = window.AbsoluteSize
         end
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if resizing and isMoveInput(input.UserInputType) then
             local delta = input.Position - resizeStart
-            local width = math.clamp(resizeSize.X + delta.X, 380, 760)
-            local height = math.clamp(resizeSize.Y + delta.Y, 260, 600)
+            local width = math.clamp(resizeSize.X + delta.X, 380, 900)
+            local height = math.clamp(resizeSize.Y + delta.Y, 260, 700)
             window.Size = UDim2.fromOffset(width, height)
             normalSize = window.Size
         end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if isDragInput(input.UserInputType) then
             resizing = false
         end
     end)
@@ -326,7 +354,7 @@ function Lib.CreateWindow(opts)
     local windowStart
     local function connectDragZone(zone)
         zone.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if isDragInput(input.UserInputType) then
                 dragObject = input
                 dragStart = input.Position
                 windowStart = window.Position
@@ -356,18 +384,131 @@ function Lib.CreateWindow(opts)
     addDragZone("DragRight", UDim2.new(0, 8, 1, -72), UDim2.new(1, -8, 0, 64))
     addDragZone("DragBottom", UDim2.new(1, -40, 0, 8), UDim2.new(0, 0, 1, -8))
     UserInputService.InputChanged:Connect(function(input)
-        if dragObject and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if dragObject and isMoveInput(input.UserInputType) then
             local delta = input.Position - dragStart
             local pos = windowStart.Position + delta
             window.Position = UDim2.fromOffset(
-                math.clamp(pos.X.Offset, 0, workspace.CurrentCamera.ViewportSize.X - window.AbsoluteSize.X),
-                math.clamp(pos.Y.Offset, 0, workspace.CurrentCamera.ViewportSize.Y - window.AbsoluteSize.Y)
+                math.clamp(pos.X.Offset, -window.AbsoluteSize.X + 60, workspace.CurrentCamera.ViewportSize.X - 60),
+                math.clamp(pos.Y.Offset, 0, workspace.CurrentCamera.ViewportSize.Y - 40)
             )
         end
     end)
 
+    -- Toast notification container (independent of the window so it stays visible while minimized)
+    local notifyContainer = Instance.new("Frame")
+    notifyContainer.Name = "NotifyContainer"
+    notifyContainer.AnchorPoint = Vector2.new(1, 1)
+    notifyContainer.Position = UDim2.new(1, -16, 1, -16)
+    notifyContainer.Size = UDim2.new(0, 280, 1, -32)
+    notifyContainer.BackgroundTransparency = 1
+    notifyContainer.ZIndex = 20
+    notifyContainer.Parent = screenGui
+    local notifyLayout = Instance.new("UIListLayout")
+    notifyLayout.FillDirection = Enum.FillDirection.Vertical
+    notifyLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    notifyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    notifyLayout.Padding = UDim.new(0, 8)
+    notifyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    notifyLayout.Parent = notifyContainer
+
     local api = { _window = window, _tabs = {}, _activeTab = nil, _accent = accent }
     local tabIndex = 0
+    local notifyCounter = 0
+
+    function api.Notify(text, kind)
+        notifyCounter = notifyCounter + 1
+        local color = accent
+        if kind == "error" then
+            color = Theme.Danger
+        elseif kind == "success" then
+            color = Theme.Success
+        end
+
+        local card = Instance.new("Frame")
+        card.BackgroundColor3 = Theme.Window
+        card.BorderSizePixel = 0
+        card.Size = UDim2.new(1, 0, 0, 0)
+        card.AutomaticSize = Enum.AutomaticSize.Y
+        card.LayoutOrder = notifyCounter
+        card.BackgroundTransparency = 1
+        card.ZIndex = 20
+        card.Parent = notifyContainer
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = card
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = color
+        stroke.Thickness = 1
+        stroke.Transparency = 1
+        stroke.Parent = card
+
+        local pad = Instance.new("UIPadding")
+        pad.PaddingLeft = UDim.new(0, 14)
+        pad.PaddingRight = UDim.new(0, 10)
+        pad.PaddingTop = UDim.new(0, 8)
+        pad.PaddingBottom = UDim.new(0, 8)
+        pad.Parent = card
+
+        local bar = Instance.new("Frame")
+        bar.BackgroundColor3 = color
+        bar.BorderSizePixel = 0
+        bar.Size = UDim2.new(0, 3, 1, -16)
+        bar.Position = UDim2.new(0, -10, 0, 8)
+        bar.BackgroundTransparency = 1
+        bar.ZIndex = 21
+        bar.Parent = card
+
+        local lbl = Instance.new("TextLabel")
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(1, 0, 0, 0)
+        lbl.AutomaticSize = Enum.AutomaticSize.Y
+        lbl.Font = Enum.Font.GothamSemibold
+        lbl.TextSize = 12
+        lbl.TextColor3 = Theme.TextMain
+        lbl.TextWrapped = true
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTransparency = 1
+        lbl.ZIndex = 21
+        lbl.Text = text
+        lbl.Parent = card
+
+        TweenService:Create(card, TweenInfo.new(0.18), { BackgroundTransparency = 0.05 }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.18), { Transparency = 0.3 }):Play()
+        TweenService:Create(bar, TweenInfo.new(0.18), { BackgroundTransparency = 0 }):Play()
+        TweenService:Create(lbl, TweenInfo.new(0.18), { TextTransparency = 0 }):Play()
+
+        task.delay(2.6, function()
+            if not card or not card.Parent then
+                return
+            end
+            TweenService:Create(card, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+            TweenService:Create(stroke, TweenInfo.new(0.25), { Transparency = 1 }):Play()
+            TweenService:Create(bar, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+            TweenService:Create(lbl, TweenInfo.new(0.25), { TextTransparency = 1 }):Play()
+            task.delay(0.3, function()
+                if card then
+                    card:Destroy()
+                end
+            end)
+        end)
+    end
+
+    function api.OnDestroy(fn)
+        table.insert(destroyCallbacks, fn)
+    end
+
+    function api.BindToggleKey(keyCode)
+        UserInputService.InputBegan:Connect(function(input, processed)
+            if processed then
+                return
+            end
+            if input.KeyCode == keyCode then
+                screenGui.Enabled = not screenGui.Enabled
+            end
+        end)
+    end
 
     function api.AddTab(name)
         tabIndex = tabIndex + 1
@@ -399,10 +540,15 @@ function Lib.CreateWindow(opts)
         page.Parent = contentArea
 
         local spacing = 10
-        local tab = {
+        local tab
+        tab = {
             _btn = btn,
             _page = page,
             _accent = accent,
+            Clear = function(self)
+                self._page:ClearAllChildren()
+                spacing = 10
+            end,
             AddLabel = function(self, text, dim)
                 spacing = spacing + 6
                 local lbl = Instance.new("TextLabel")
@@ -452,9 +598,10 @@ function Lib.CreateWindow(opts)
 
                 btnLabel.MouseButton1Click:Connect(function()
                     if callback then
-                        pcall(function()
-                            callback()
-                        end)
+                        local ok, err = pcall(callback)
+                        if not ok then
+                            api.Notify("Error: " .. tostring(err), "error")
+                        end
                     end
                 end)
 
@@ -532,9 +679,10 @@ function Lib.CreateWindow(opts)
                     value = not value
                     apply()
                     if onChange then
-                        pcall(function()
-                            onChange(value)
-                        end)
+                        local ok, err = pcall(onChange, value)
+                        if not ok then
+                            api.Notify("Error: " .. tostring(err), "error")
+                        end
                     end
                 end)
                 apply()
@@ -547,9 +695,7 @@ function Lib.CreateWindow(opts)
                         value = v == true
                         apply()
                         if onChange then
-                            pcall(function()
-                                onChange(value)
-                            end)
+                            pcall(onChange, value)
                         end
                     end,
                 }
@@ -623,37 +769,38 @@ function Lib.CreateWindow(opts)
                 local function update(fromX)
                     local absX = track.AbsolutePosition.X
                     local absW = track.AbsoluteSize.X
-                    local frac = math.clamp((fromX - absX) / absW, 0, 1)
+                    local frac = math.clamp((fromX - absX) / math.max(absW, 1e-3), 0, 1)
                     value = math.round(min + (max - min) * frac)
                     fill.Size = UDim2.fromScale(frac, 1)
                     valLabel.Text = tostring(value)
                     if onChange and not updating then
                         updating = true
-                        pcall(function()
-                            onChange(value)
-                        end)
+                        pcall(onChange, value)
                         updating = false
                     end
                 end
                 grab.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if isDragInput(input.UserInputType) then
                         update(input.Position.X)
                         local conn
                         conn = UserInputService.InputChanged:Connect(function(move)
-                            if move.UserInputType == Enum.UserInputType.MouseMovement then
+                            if isMoveInput(move.UserInputType) then
                                 update(move.Position.X)
                             end
                         end)
                         local releaseConn
                         releaseConn = UserInputService.InputEnded:Connect(function(release)
-                            if release.UserInputType == Enum.UserInputType.MouseButton1 then
+                            if isDragInput(release.UserInputType) then
                                 conn:Disconnect()
                                 releaseConn:Disconnect()
                             end
                         end)
                     end
                 end)
-                update(track.AbsolutePosition.X + (value - min) / (max - min) * track.AbsoluteSize.X)
+
+                local initialFrac = math.clamp((value - min) / math.max(max - min, 1e-6), 0, 1)
+                fill.Size = UDim2.fromScale(initialFrac, 1)
+                valLabel.Text = tostring(value)
                 spacing = spacing + 54
                 return {
                     Get = function()
@@ -680,6 +827,7 @@ function Lib.CreateWindow(opts)
     end
 
     function api.Destroy()
+        runDestroyCallbacks()
         screenGui:Destroy()
     end
 
@@ -933,16 +1081,41 @@ end
 function buildHub()
     print("[Frost] Building hub")
 
+    -- Cleanup tracking so switching games / closing the GUI never leaves background loops running.
+    local universalCleanups = {}
+    local function trackUniversal(fn)
+        table.insert(universalCleanups, fn)
+    end
+    local function cleanupUniversal()
+        for _, fn in ipairs(universalCleanups) do
+            pcall(fn)
+        end
+        universalCleanups = {}
+    end
+
+    local gameCleanups = {}
+    local function trackGame(fn)
+        table.insert(gameCleanups, fn)
+    end
+    local function cleanupGame()
+        for _, fn in ipairs(gameCleanups) do
+            pcall(fn)
+        end
+        gameCleanups = {}
+    end
+
     local supportedGames = {
         ["Steal An Egg"] = {
             PlaceId = 107778070777162,
-            Features = function(tab)
+            Features = function(hub, tab, track)
                 tab:AddLabel("Steal An Egg Features", true)
 
+                local eggESPState = { active = false }
                 tab:AddToggle("Egg ESP", false, function(on)
+                    eggESPState.active = on
                     if on then
                         task.spawn(function()
-                            while on do
+                            while eggESPState.active do
                                 task.wait(0.5)
                                 for _, obj in ipairs(workspace:GetDescendants()) do
                                     if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType") or obj:FindFirstChild("Rarity")) and not obj:FindFirstChild("_FrostESP") then
@@ -958,18 +1131,27 @@ function buildHub()
                                 end
                             end
                         end)
+                        hub.Notify("Egg ESP enabled", "success")
                     else
                         for _, obj in ipairs(workspace:GetDescendants()) do
                             local h = obj:FindFirstChild("_FrostESP")
-                            if h then h:Destroy() end
+                            if h then
+                                h:Destroy()
+                            end
                         end
+                        hub.Notify("Egg ESP disabled", "info")
                     end
                 end)
+                track(function()
+                    eggESPState.active = false
+                end)
 
+                local playerESPState = { active = false }
                 tab:AddToggle("Player ESP", false, function(on)
+                    playerESPState.active = on
                     if on then
                         task.spawn(function()
-                            while on do
+                            while playerESPState.active do
                                 task.wait(0.5)
                                 for _, player in ipairs(Players:GetPlayers()) do
                                     if player ~= LocalPlayer and player.Character then
@@ -987,69 +1169,92 @@ function buildHub()
                                 end
                             end
                         end)
+                        hub.Notify("Player ESP enabled", "success")
                     else
                         for _, player in ipairs(Players:GetPlayers()) do
                             if player.Character then
                                 local root = player.Character:FindFirstChild("HumanoidRootPart")
                                 if root then
                                     local b = root:FindFirstChild("_FrostPlayerESP")
-                                    if b then b:Destroy() end
+                                    if b then
+                                        b:Destroy()
+                                    end
                                 end
                             end
                         end
+                        hub.Notify("Player ESP disabled", "info")
                     end
+                end)
+                track(function()
+                    playerESPState.active = false
                 end)
 
                 local bestEggActive = false
                 tab:AddToggle("Best Egg Auto-Collect", false, function(on)
                     bestEggActive = on
-                    task.spawn(function()
-                        while bestEggActive do
-                            task.wait(0.3)
-                            local char = getCharacter()
-                            local root = getRootPart(char)
-                            local humanoid = getHumanoid(char)
-                            if root and humanoid then
-                                local closestEgg = nil
-                                local closestDist = math.huge
-                                for _, obj in ipairs(workspace:GetDescendants()) do
-                                    if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
-                                        local dist = (obj.Position - root.Position).Magnitude
-                                        if dist < closestDist and dist < 50 then
-                                            closestDist = dist
-                                            closestEgg = obj
+                    if on then
+                        task.spawn(function()
+                            while bestEggActive do
+                                task.wait(0.3)
+                                local char = getCharacter()
+                                local root = getRootPart(char)
+                                local humanoid = getHumanoid(char)
+                                if root and humanoid then
+                                    local closestEgg = nil
+                                    local closestDist = math.huge
+                                    for _, obj in ipairs(workspace:GetDescendants()) do
+                                        if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
+                                            local dist = (obj.Position - root.Position).Magnitude
+                                            if dist < closestDist and dist < 50 then
+                                                closestDist = dist
+                                                closestEgg = obj
+                                            end
                                         end
                                     end
-                                end
-                                if closestEgg then
-                                    root.CFrame = CFrame.lookAt(root.Position, closestEgg.Position) * CFrame.new(0, 0, -5)
+                                    if closestEgg then
+                                        root.CFrame = CFrame.lookAt(root.Position, closestEgg.Position) * CFrame.new(0, 0, -5)
+                                    end
                                 end
                             end
-                        end
-                    end)
+                        end)
+                        hub.Notify("Best Egg Auto-Collect enabled", "success")
+                    else
+                        hub.Notify("Best Egg Auto-Collect disabled", "info")
+                    end
+                end)
+                track(function()
+                    bestEggActive = false
                 end)
 
                 local autoFarmActive = false
                 tab:AddToggle("Auto Farm Eggs", false, function(on)
                     autoFarmActive = on
-                    task.spawn(function()
-                        while autoFarmActive do
-                            task.wait(0.3)
-                            local char = getCharacter()
-                            local root = getRootPart(char)
-                            local humanoid = getHumanoid(char)
-                            if root and humanoid then
-                                for _, obj in ipairs(workspace:GetDescendants()) do
-                                    if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
-                                        local dist = (obj.Position - root.Position).Magnitude
-                                        if dist < 30 then
-                                            root.CFrame = CFrame.lookAt(root.Position, obj.Position) * CFrame.new(0, 0, -5)
+                    if on then
+                        task.spawn(function()
+                            while autoFarmActive do
+                                task.wait(0.3)
+                                local char = getCharacter()
+                                local root = getRootPart(char)
+                                local humanoid = getHumanoid(char)
+                                if root and humanoid then
+                                    for _, obj in ipairs(workspace:GetDescendants()) do
+                                        if (obj.Name:lower():find("egg") or obj:FindFirstChild("EggType")) and obj:IsA("BasePart") then
+                                            local dist = (obj.Position - root.Position).Magnitude
+                                            if dist < 30 then
+                                                root.CFrame = CFrame.lookAt(root.Position, obj.Position) * CFrame.new(0, 0, -5)
+                                            end
                                         end
                                     end
                                 end
                             end
-                        end
-                    end)
+                        end)
+                        hub.Notify("Auto Farm enabled", "success")
+                    else
+                        hub.Notify("Auto Farm disabled", "info")
+                    end
+                end)
+                track(function()
+                    autoFarmActive = false
                 end)
 
                 tab:AddSlider("ESP Draw Distance", 10, 200, 50, function(val) end)
@@ -1057,7 +1262,10 @@ function buildHub()
                 tab:AddButton("Teleport to Closest Egg", function()
                     local char = getCharacter()
                     local root = getRootPart(char)
-                    if not root then return end
+                    if not root then
+                        hub.Notify("Character not ready", "error")
+                        return
+                    end
                     local closestEgg = nil
                     local closestDist = math.huge
                     for _, obj in ipairs(workspace:GetDescendants()) do
@@ -1069,15 +1277,21 @@ function buildHub()
                             end
                         end
                     end
-                    if closestEgg and root then
+                    if closestEgg then
                         root.CFrame = closestEgg.CFrame + Vector3.new(0, 5, 0)
+                        hub.Notify("Teleported to closest egg", "success")
+                    else
+                        hub.Notify("No egg found nearby", "error")
                     end
                 end, true)
 
                 tab:AddButton("Teleport to Closest Player", function()
                     local char = getCharacter()
                     local root = getRootPart(char)
-                    if not root then return end
+                    if not root then
+                        hub.Notify("Character not ready", "error")
+                        return
+                    end
                     local closest = nil
                     local closestDist = math.huge
                     for _, player in ipairs(Players:GetPlayers()) do
@@ -1092,15 +1306,20 @@ function buildHub()
                             end
                         end
                     end
-                    if closest and root then
+                    if closest then
                         root.CFrame = closest.CFrame + Vector3.new(0, 5, 0)
+                        hub.Notify("Teleported to closest player", "success")
+                    else
+                        hub.Notify("No other player found", "error")
                     end
                 end, true)
 
                 tab:AddButton("Prediction ESP", function()
+                    local found = 0
                     for _, obj in ipairs(workspace:GetDescendants()) do
                         if obj.Name:lower():find("egg") or obj:FindFirstChild("EggType") then
                             if not obj:FindFirstChild("_FrostPredict") then
+                                found = found + 1
                                 local p = Instance.new("Part")
                                 p.Anchored = true
                                 p.CanCollide = false
@@ -1126,24 +1345,36 @@ function buildHub()
                             end
                         end
                     end
+                    if found > 0 then
+                        hub.Notify("Marked " .. found .. " egg(s)", "success")
+                    else
+                        hub.Notify("No eggs found", "error")
+                    end
                 end, true)
 
                 tab:AddButton("Clear All ESP", function()
                     for _, obj in ipairs(workspace:GetDescendants()) do
                         local h = obj:FindFirstChild("_FrostESP")
                         local p = obj:FindFirstChild("_FrostPredict")
-                        if h then h:Destroy() end
-                        if p then p:Destroy() end
+                        if h then
+                            h:Destroy()
+                        end
+                        if p then
+                            p:Destroy()
+                        end
                     end
                     for _, player in ipairs(Players:GetPlayers()) do
                         if player.Character then
                             local root = player.Character:FindFirstChild("HumanoidRootPart")
                             if root then
                                 local b = root:FindFirstChild("_FrostPlayerESP")
-                                if b then b:Destroy() end
+                                if b then
+                                    b:Destroy()
+                                end
                             end
                         end
                     end
+                    hub.Notify("Cleared all ESP", "info")
                 end, true)
 
                 tab:AddLabel("Features: Egg ESP, Player ESP, Best Egg Auto, Auto Farm, Prediction ESP, Teleport, Clear All.", true)
@@ -1163,6 +1394,9 @@ function buildHub()
         local hum = getHumanoid(char)
         if hum then
             hum.WalkSpeed = on and 240 or 16
+            hub.Notify(on and "Walkspeed boosted" or "Walkspeed reset", on and "success" or "info")
+        else
+            hub.Notify("Character not ready", "error")
         end
     end)
 
@@ -1172,15 +1406,41 @@ function buildHub()
         if hum then
             hum.JumpPower = on and 100 or 50
             hum.UseJumpPower = true
+            hub.Notify(on and "Jump power boosted" or "Jump power reset", on and "success" or "info")
+        else
+            hub.Notify("Character not ready", "error")
         end
     end)
 
     local flyConns = {}
+    local function stopFly()
+        if flyConns.hb then
+            flyConns.hb:Disconnect()
+            flyConns.hb = nil
+        end
+        if flyConns.bv then
+            flyConns.bv:Destroy()
+            flyConns.bv = nil
+        end
+        local ch2 = getCharacter()
+        local root2 = getRootPart(ch2)
+        if root2 then
+            local old = root2:FindFirstChildOfClass("BodyVelocity")
+            if old then
+                old:Destroy()
+            end
+        end
+        local h2 = getHumanoid(ch2)
+        if h2 then
+            h2.PlatformStand = false
+        end
+    end
     universal:AddToggle("Fly (WASD + Space / Shift)", false, function(on)
         local char = getCharacter()
         local hum = getHumanoid(char)
         local root = getRootPart(char)
         if not hum or not root then
+            hub.Notify("Character not ready", "error")
             return
         end
         if on then
@@ -1220,59 +1480,50 @@ function buildHub()
                 root.AssemblyLinearVelocity = Vector3.zero
             end)
             hum.PlatformStand = true
+            hub.Notify("Fly enabled", "success")
         else
-            if flyConns.hb then
-                flyConns.hb:Disconnect()
-            end
-            if flyConns.bv then
-                flyConns.bv:Destroy()
-            end
-            flyConns = {}
-            local root2 = getRootPart(getCharacter())
-            if root2 then
-                local old = root2:FindFirstChildOfClass("BodyVelocity")
-                if old then
-                    old:Destroy()
-                end
-            end
-            local ch2 = getCharacter()
-            local h2 = getHumanoid(ch2)
-            if h2 then
-                h2.PlatformStand = false
-            end
+            stopFly()
+            hub.Notify("Fly disabled", "info")
         end
     end)
+    trackUniversal(stopFly)
 
     local noclipConn = nil
+    local function stopNoclip()
+        if noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
+        end
+    end
     universal:AddToggle("NoClip", false, function(on)
-        local char = getCharacter()
         if on then
             noclipConn = RunService.Stepped:Connect(function()
-                for _, part in ipairs(getCharacter():GetDescendants()) do
+                local char = getCharacter()
+                if not char then
+                    return
+                end
+                for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") then
                         part.CanCollide = false
                     end
                 end
             end)
+            hub.Notify("NoClip enabled", "success")
         else
-            if noclipConn then
-                noclipConn:Disconnect()
-                noclipConn = nil
-            end
+            stopNoclip()
+            hub.Notify("NoClip disabled", "info")
         end
     end)
+    trackUniversal(stopNoclip)
 
     universal:AddButton("Teleport to Spawn", function()
         local root = getRootPart(getCharacter())
         local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation")
         if spawn and root then
             root.CFrame = spawn.CFrame + Vector3.new(0, 4, 0)
+            hub.Notify("Teleported to spawn", "success")
         else
-            local char = getCharacter()
-            local hum = getHumanoid(char)
-            if hum then
-                hum.Sit = false
-            end
+            hub.Notify("No spawn location found", "error")
         end
     end)
 
@@ -1281,73 +1532,51 @@ function buildHub()
         local _, code = pcall(function()
             return ts:GetJobId(game.PlaceId)
         end)
-        pcall(function()
+        local ok = pcall(function()
             ts:Teleport(game.PlaceId, LocalPlayer, nil, code)
         end)
+        if ok then
+            hub.Notify("Rejoining server...", "info")
+        else
+            hub.Notify("Rejoin failed", "error")
+        end
     end, true)
 
     local gameTab = hub.AddTab("Steal An Egg")
-    local gameTabActive = false
+    gameTab:AddLabel("Click 'Load Steal An Egg Features' in the Information tab to populate this tab.", true)
 
     local information = hub.AddTab("Information")
     information:AddLabel("Select a game to load features:", true)
     information:AddLabel("PlaceId 107778070777162 = Steal An Egg", true)
     information:AddLabel("Universal features are always available.", true)
 
-    local stealBtn = Instance.new("TextButton")
-    stealBtn.Size = UDim2.new(1, -12, 0, 40)
-    stealBtn.Position = UDim2.fromOffset(6, 60)
-    stealBtn.BackgroundColor3 = Theme.Card
-    stealBtn.BorderSizePixel = 0
-    stealBtn.Text = "Load Steal An Egg Features"
-    stealBtn.TextColor3 = Theme.TextMain
-    stealBtn.Font = Enum.Font.GothamSemibold
-    stealBtn.TextSize = 13
-    stealBtn.TextXAlignment = Enum.TextXAlignment.Left
-    stealBtn.Parent = information._page
-    local stealCorner = Instance.new("UICorner")
-    stealCorner.CornerRadius = UDim.new(0, 9)
-    stealCorner.Parent = stealBtn
-
-    stealBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            if gameTabActive then
-                gameTab._page:Clear()
-            end
-            gameTabActive = true
-            gameTab._page.CanvasSize = UDim2.new(0, 0, 0, 0)
-            local gameObj = supportedGames["Steal An Egg"]
-            if gameObj and gameObj.Features then
-                gameObj.Features(gameTab)
-            end
-            hub.Select("Steal An Egg")
-        end)
+    information:AddButton("Load Steal An Egg Features", function()
+        cleanupGame()
+        gameTab:Clear()
+        local gameObj = supportedGames["Steal An Egg"]
+        if gameObj and gameObj.Features then
+            gameObj.Features(hub, gameTab, trackGame)
+        end
+        hub.Select("Steal An Egg")
+        hub.Notify("Steal An Egg features loaded", "success")
     end)
 
-    local resetBtn = Instance.new("TextButton")
-    resetBtn.Size = UDim2.new(1, -12, 0, 40)
-    resetBtn.Position = UDim2.fromOffset(6, 110)
-    resetBtn.BackgroundColor3 = Theme.Card
-    resetBtn.BorderSizePixel = 0
-    resetBtn.Text = "Reset to Universal"
-    resetBtn.TextColor3 = Theme.TextMain
-    resetBtn.Font = Enum.Font.GothamSemibold
-    resetBtn.TextSize = 13
-    resetBtn.TextXAlignment = Enum.TextXAlignment.Left
-    resetBtn.Parent = information._page
-    local resetCorner = Instance.new("UICorner")
-    resetCorner.CornerRadius = UDim.new(0, 9)
-    resetCorner.Parent = resetBtn
+    information:AddButton("Reset to Universal", function()
+        cleanupGame()
+        gameTab:Clear()
+        gameTab:AddLabel("Click 'Load Steal An Egg Features' in the Information tab to populate this tab.", true)
+        hub.Select("Universal")
+        hub.Notify("Reset to Universal", "info")
+    end, true)
 
-    resetBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            gameTab._page:Clear()
-            gameTabActive = false
-            hub.Select("Universal")
-        end)
+    hub.OnDestroy(function()
+        cleanupGame()
+        cleanupUniversal()
     end)
 
+    hub.BindToggleKey(Enum.KeyCode.RightShift)
     hub.Select("Information")
+    hub.Notify("Frost hub ready. Drag the header to move. Press RightShift to hide/show.", "success")
 end
 
 local okStart, errStart = pcall(function()
