@@ -149,6 +149,15 @@ function Window:_buildBody()
 		Parent = self.window,
 	})
 
+	local tabListLayout = Builder.new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 6),
+		Parent = self.tabList,
+	})
+	tabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		self.tabList.CanvasSize = UDim2.new(0, 0, 0, tabListLayout.AbsoluteContentSize.Y + 12)
+	end)
+
 	self.content = Builder.frame({
 		Name = "Content",
 		Size = UDim2.new(1, -(M.ContentInset + 12), 1, -(M.ContentTop + 12)),
