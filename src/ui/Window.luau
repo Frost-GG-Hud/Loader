@@ -137,44 +137,13 @@ end
 
 function Window:_buildBody()
 	local Config = ctx.require("core/Config")
-
-	-- Search Bar in Sidebar (Zeroin style)
-	local searchBox = Builder.frame({
-		Name = "SearchBox",
-		Size = UDim2.new(0, M.TabRailWidth - 4, 0, 28),
-		Position = UDim2.fromOffset(8, M.ContentTop),
-		BackgroundColor3 = Theme.Surface,
-		ZIndex = 6,
-		Parent = self.window,
-	})
-	Builder.corner(searchBox, 7)
-	Builder.stroke(searchBox, {
-		Color = Theme.Border,
-		Thickness = 1,
-		Transparency = 0.3,
-	})
-
-	Builder.new("TextBox", {
-		Name = "SearchInput",
-		Size = UDim2.new(1, -12, 1, 0),
-		Position = UDim2.fromOffset(8, 0),
-		BackgroundTransparency = 1,
-		Font = Theme.FontRegular,
-		TextSize = 11,
-		Text = "",
-		PlaceholderText = "🔍 Search...",
-		PlaceholderColor3 = Theme.TextMuted,
-		TextColor3 = Theme.TextMain,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ClearTextOnFocus = false,
-		ZIndex = 7,
-		Parent = searchBox,
-	})
+	local Players = game:GetService("Players")
+	local LocalPlayer = Players.LocalPlayer
 
 	self.tabList = Builder.new("ScrollingFrame", {
 		Name = "Tabs",
-		Size = UDim2.new(0, M.TabRailWidth, 1, -(M.ContentTop + 90)),
-		Position = UDim2.fromOffset(8, M.ContentTop + 34),
+		Size = UDim2.new(0, M.TabRailWidth - 4, 1, -(M.ContentTop + 72)),
+		Position = UDim2.fromOffset(6, M.ContentTop + 8),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 0,
@@ -186,62 +155,74 @@ function Window:_buildBody()
 
 	local tabListLayout = Builder.new("UIListLayout", {
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		Padding = UDim.new(0, 5),
+		Padding = UDim.new(0, 4),
 		Parent = self.tabList,
 	})
 	tabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		self.tabList.CanvasSize = UDim2.new(0, 0, 0, tabListLayout.AbsoluteContentSize.Y + 12)
+		self.tabList.CanvasSize = UDim2.new(0, 0, 0, tabListLayout.AbsoluteContentSize.Y + 8)
 	end)
 
-	-- Bottom Discord Banner Card (Zeroin style)
-	local discordCard = Builder.button({
-		Name = "DiscordBanner",
-		Size = UDim2.new(0, M.TabRailWidth - 4, 0, 42),
-		Position = UDim2.new(0, 8, 1, -48),
+	-- Bottom User Session Profile Card (OMG HUB style)
+	local profileCard = Builder.button({
+		Name = "UserProfileCard",
+		Size = UDim2.new(0, M.TabRailWidth - 8, 0, 52),
+		Position = UDim2.new(0, 6, 1, -58),
 		BackgroundColor3 = Theme.Surface,
 		ZIndex = 6,
 		Parent = self.window,
 	})
-	Builder.corner(discordCard, 8)
-	Builder.stroke(discordCard, {
+	Builder.corner(profileCard, 8)
+	Builder.stroke(profileCard, {
 		Color = Theme.Border,
 		Thickness = 1,
-		Transparency = 0.4,
+		Transparency = 0.45,
 	})
 
-	Builder.label({
-		Size = UDim2.fromOffset(20, 20),
-		Position = UDim2.fromOffset(8, 11),
-		Text = "💬",
-		TextSize = 14,
+	local avatarImg = Builder.imageLabel({
+		Name = "Avatar",
+		Size = UDim2.fromOffset(34, 34),
+		Position = UDim2.fromOffset(8, 9),
+		Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(LocalPlayer.UserId) .. "&w=100&h=100",
 		ZIndex = 7,
-		Parent = discordCard,
+		Parent = profileCard,
 	})
+	Builder.corner(avatarImg, 6)
 
 	Builder.label({
-		Size = UDim2.new(1, -34, 0, 16),
-		Position = UDim2.fromOffset(32, 6),
+		Size = UDim2.new(1, -50, 0, 16),
+		Position = UDim2.fromOffset(48, 7),
 		Font = Theme.FontBold,
 		TextSize = 11,
-		Text = "Discord",
+		Text = LocalPlayer.DisplayName,
 		TextColor3 = Theme.TextMain,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 7,
-		Parent = discordCard,
+		Parent = profileCard,
 	})
 
 	Builder.label({
-		Size = UDim2.new(1, -34, 0, 12),
-		Position = UDim2.fromOffset(32, 22),
+		Size = UDim2.new(1, -50, 0, 12),
+		Position = UDim2.fromOffset(48, 22),
 		Font = Theme.FontRegular,
 		TextSize = 9,
-		Text = "discord.gg/TWnmPCxxSY",
+		Text = "Local session",
 		TextColor3 = Theme.TextDim,
-		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 7,
-		Parent = discordCard,
+		Parent = profileCard,
 	})
 
-	discordCard.MouseButton1Click:Connect(function()
+	Builder.label({
+		Size = UDim2.new(1, -50, 0, 12),
+		Position = UDim2.fromOffset(48, 34),
+		Font = Theme.FontMedium,
+		TextSize = 8,
+		Text = "🟢 Connected",
+		TextColor3 = Theme.Success,
+		ZIndex = 7,
+		Parent = profileCard,
+	})
+
+	profileCard.MouseButton1Click:Connect(function()
 		local setclip = setclipboard or toclipboard or writeclipboard
 		if setclip then
 			setclip(Config.DiscordInvite)
@@ -251,8 +232,7 @@ function Window:_buildBody()
 		end
 	end)
 
-	self.searchBox = searchBox
-	self.discordCard = discordCard
+	self.profileCard = profileCard
 
 	self.content = Builder.frame({
 		Name = "Content",
@@ -439,8 +419,7 @@ function Window:setMinimized(minimized)
 
 	self.tabList.Visible = not minimized
 	self.content.Visible = not minimized
-	if self.searchBox then self.searchBox.Visible = not minimized end
-	if self.discordCard then self.discordCard.Visible = not minimized end
+	if self.profileCard then self.profileCard.Visible = not minimized end
 	self.resizeHandle.Visible = not minimized
 	self.header.setMinimized(minimized)
 
