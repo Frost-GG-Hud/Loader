@@ -12,6 +12,9 @@ local SliderWidget = ctx.require("ui/widgets/Slider")
 local SectionWidget = ctx.require("ui/widgets/Section")
 local TextInputWidget = ctx.require("ui/widgets/TextInput")
 local GridRowWidget = ctx.require("ui/widgets/GridRow")
+local DropdownWidget = ctx.require("ui/widgets/Dropdown")
+local KeybindWidget = ctx.require("ui/widgets/Keybind")
+local ParagraphWidget = ctx.require("ui/widgets/Paragraph")
 
 return function(tab)
 	function tab:AddSection(title)
@@ -20,6 +23,10 @@ return function(tab)
 
 	function tab:AddLabel(text, dim)
 		return LabelWidget(self, text, dim)
+	end
+
+	function tab:AddParagraph(title, content)
+		return ParagraphWidget(self, title, content)
 	end
 
 	function tab:AddButton(text, callback, danger)
@@ -38,5 +45,14 @@ return function(tab)
 		return TextInputWidget(self, labelText, placeholder, default, onCommit)
 	end
 
+	function tab:AddDropdown(labelText, options, defaultSelected, onSelect, isMulti)
+		return DropdownWidget(self, labelText, options, defaultSelected, onSelect, isMulti)
+	end
+
+	function tab:AddKeybind(labelText, defaultKey, onKeyChanged, onTrigger)
+		return KeybindWidget(self, labelText, defaultKey, onKeyChanged, onTrigger)
+	end
+
 	return GridRowWidget(tab)
 end
+
