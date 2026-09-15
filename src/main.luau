@@ -40,14 +40,13 @@ local function buildHub()
 	end)
 
 	-- 1. Main Launcher Tab (ALWAYS visible so user can switch between modes)
-	local launcherTab = window:addTab("ℹ️ Launcher")
+	local launcherTab = window:addTab("ℹ️ Info")
 
-	-- 2. Steal An Egg Category Tabs
-	local autoTab = window:addTab("🥚 Automation")
-	local espTab = window:addTab("👁️ Visuals / ESP")
+	-- 2. Steal An Egg Category Tabs (Zeroin style)
+	local autoTab = window:addTab("🏠 Main")
+	local espTab = window:addTab("👁️ Visuals")
 	local defenseTab = window:addTab("🛡️ Bypasses")
-	local tpTab = window:addTab("📍 Teleports")
-	local webhookTab = window:addTab("🔔 Webhooks")
+	local webhookTab = window:addTab("🔗 Webhook")
 
 	-- 3. Universal Tab
 	local universalTab = window:addTab("⚡ Universal")
@@ -57,7 +56,6 @@ local function buildHub()
 		autoTab = autoTab,
 		espTab = espTab,
 		defenseTab = defenseTab,
-		tpTab = tpTab,
 		webhookTab = webhookTab,
 	}, cleanup)
 
@@ -69,7 +67,6 @@ local function buildHub()
 		autoTab:setButtonVisible(visible)
 		espTab:setButtonVisible(visible)
 		defenseTab:setButtonVisible(visible)
-		tpTab:setButtonVisible(visible)
 		webhookTab:setButtonVisible(visible)
 	end
 
@@ -156,7 +153,7 @@ local function buildHub()
 	launcherTab:AddButton("🥚 Launch Steal An Egg Hub (Automation, ESP, Traps, Webhooks)", function()
 		setUniversalVisible(false)
 		setStealAnEggVisible(true)
-		window:select("🥚 Automation")
+		window:select("🏠 Main")
 		window:notify("Steal An Egg Hub active! Use sidebar tabs to navigate.", "success")
 	end)
 
@@ -188,8 +185,8 @@ local function buildHub()
 		window:destroy()
 	end, true)
 
-	-- Open with Launcher selected by default
-	window:select("ℹ️ Launcher")
+	-- Open with Info selected by default
+	window:select("ℹ️ Info")
 	window:notify("Welcome " .. LocalPlayer.DisplayName .. "! Select a mode in Launcher.", "info")
 
 	return window
