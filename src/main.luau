@@ -1377,7 +1377,145 @@ function buildHub()
                     hub.Notify("Cleared all ESP", "info")
                 end, true)
 
-                tab:AddLabel("Features: Egg ESP, Player ESP, Best Egg Auto, Auto Farm, Prediction ESP, Teleport, Clear All.", true)
+                -- Attribute names vary between game builds. Adjust these lists if your server uses
+                -- different keys (use "Scan Egg Attributes" below to discover the real names).
+                local VALUE_ATTRS = { "Income", "Profit", "MoneyPerSecond", "IncomePerSecond", "CashPerSecond", "Value", "Price", "Worth" }
+                local OWNER_ATTRS = { "Owner", "OwnerId", "OwnerName", "PlotOwner", "ClaimedBy", "Claimed" }
+
+                local function readEggValue(obj)
+                    for _, attrName in ipairs(VALUE_ATTRS) do
+                        local v = obj:GetAttribute(attrName)
+                        if type(v) == "number" then
+                            return v
+                        end
+                    end
+                    for _, child in ipairs(obj:GetChildren()) do
+                        if child:IsA("NumberValue") or child:IsA("IntValue") then
+                            local n = child.Name:lower()
+                            if n:find("income") or n:find("profit") or n:find("value") or n:find("worth") or n:find("cash") then
+                                return child.Value
+                            end
+                        end
+                    end
+                    return nil
+                end
+
+                local function isEggClaimed(obj)
+                    local node = obj
+                    while node and node ~= workspace do
+                        for _, attrName in ipairs(OWNER_ATTRS) do
+                            local v = node:GetAttribute(attrName)
+                            if v ~= nil and v ~= "" and v ~= 0 and v ~= false then
+                                return true
+                            end
+                        end
+                        node = node.Parent
+                    end
+                    return false
+                end
+
+                local function getEggPosition(obj)
+                    if obj:IsA("BasePart") then
+                        return obj.Position
+                    end
+                    if obj:IsA("Model") then
+                        local ok, cf = pcall(function()
+                            return obj:GetPivot()
+                        end)
+                        if ok then
+                            return cf.Position
+                        end
+                    end
+                    return nil
+                end
+
+                tab:AddButton("Scan Egg Attributes (debug)", function()
+                    local sample = nil
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if obj.Name:lower():find("egg") and (obj:IsA("BasePart") or obj:IsA("Model")) then
+                            sample = obj
+                            break
+                        end
+                    end
+                    if not sample then
+                        hub.Notify("No egg objects found in workspace", "error")
+                        return
+                    end
+                    local attrs = sample:GetAttributes()
+                    local parts = {}
+                    for k, v in pairs(attrs) do
+                        table.insert(parts, k .. "=" .. tostring(v))
+                    end
+                    local children = {}
+                    for _, c in ipairs(sample:GetChildren()) do
+                        table.insert(children, c.ClassName .. ":" .. c.Name)
+                    end
+                    print("[Frost] Sample egg:", sample:GetFullName())
+                    print("[Frost] Attributes:", table.concat(parts, ", "))
+                    print("[Frost] Children:", table.concat(children, ", "))
+                    hub.Notify("Printed sample egg attributes to console (F9)", "info")
+                end, true)
+
+                tab:AddButton("Auto: Best Value Egg (Walk There & Back)", function()
+                    local char = getCharacter()
+                    local hum = getHumanoid(char)
+                    local root = getRootPart(char)
+                    if not hum or not root then
+                        hub.Notify("Character not ready", "error")
+                        return
+                    end
+
+                    local best, bestValue, bestPos = nil, -math.huge, nil
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if (obj:IsA("BasePart") or obj:IsA("Model")) and obj.Name:lower():find("egg") then
+                            if not isEggClaimed(obj) then
+                                local value = readEggValue(obj)
+                                if value and value > bestValue then
+                                    local pos = getEggPosition(obj)
+                                    if pos then
+                                        bestValue = value
+                                        best = obj
+                                        bestPos = pos
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    if not best then
+                        hub.Notify("No unclaimed egg with readable value found. Try 'Scan Egg Attributes' to find the right names.", "error")
+                        return
+                    end
+
+                    local originalSpeed = hum.WalkSpeed
+                    hum.WalkSpeed = 450
+                    hub.Notify(string.format("Walking to best egg (value %.0f)", bestValue), "success")
+
+                    hum:MoveTo(bestPos)
+                    local reached = hum.MoveToFinished:Wait(15)
+                    if not reached then
+                        hub.Notify("Pathing timed out, nudging closer", "info")
+                        root.CFrame = CFrame.new(bestPos + Vector3.new(0, 4, 0))
+                    end
+
+                    task.wait(0.6) -- give the game time to register pickup (Touch/ProximityPrompt/RemoteEvent)
+
+                    local safeSpot = workspace:FindFirstChild("SafeZone")
+                        or workspace:FindFirstChild("Base")
+                        or workspace:FindFirstChild("Baseplate")
+                        or workspace:FindFirstChildWhichIsA("SpawnLocation")
+                    if safeSpot then
+                        local safePos = getEggPosition(safeSpot) or safeSpot.Position
+                        hub.Notify("Returning to safe spawn", "info")
+                        hum:MoveTo(safePos)
+                        hum.MoveToFinished:Wait(15)
+                    end
+
+                    hum.WalkSpeed = originalSpeed
+                    hub.Notify("Done", "success")
+                end, true)
+
+                tab:AddLabel("Features: Egg ESP, Player ESP, Best Egg Auto, Auto Farm, Prediction ESP, Teleport, Clear All, Best Value Walker.", true)
             end,
         },
     }
