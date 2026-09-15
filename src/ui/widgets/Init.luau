@@ -9,8 +9,13 @@ local LabelWidget = ctx.require("ui/widgets/Label")
 local ButtonWidget = ctx.require("ui/widgets/Button")
 local ToggleWidget = ctx.require("ui/widgets/Toggle")
 local SliderWidget = ctx.require("ui/widgets/Slider")
+local SectionWidget = ctx.require("ui/widgets/Section")
 
 return function(tab)
+	function tab:AddSection(title)
+		return SectionWidget(self, title)
+	end
+
 	function tab:AddLabel(text, dim)
 		return LabelWidget(self, text, dim)
 	end
