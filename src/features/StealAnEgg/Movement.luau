@@ -1,5 +1,6 @@
 -- Movement, Automation, Traps & Guard Bypasses for Steal An Egg.
 -- Anti-cheat aware: bypasses ObbyAntiTP speed resets, supports 1-1000 speed slider, and Launch-TP exploit.
+-- Steals eggs by holding E (ProximityPrompt simulation + CarryFieldEgg call).
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -18,32 +19,13 @@ local SAFE_ZONE_NAMES = { "SafeZone", "SafeArea", "Base", "Baseplate", "SpawnAre
 local Movement = {}
 Movement.__index = Movement
 
-local function firePrompt(prompt)
-	if not prompt then
-		return false
+local eggStateModule = nil
+pcall(function()
+	local eggStateMod = ReplicatedStorage:FindFirstChild("Client") and ReplicatedStorage.Client:FindFirstChild("EggState")
+	if eggStateMod and eggStateMod:IsA("ModuleScript") then
+		eggStateModule = require(eggStateMod)
 	end
-	if fireproximityprompt then
-		pcall(fireproximityprompt, prompt, 0, true)
-		return true
-	end
-	pcall(function()
-		prompt:InputHoldBegin()
-		task.wait(prompt.HoldDuration or 0.1)
-		prompt:InputHoldEnd()
-	end)
-	return true
-end
-
-local function fireTouch(part1, part2)
-	if not part1 or not part2 then
-		return
-	end
-	if firetouchinterest then
-		pcall(firetouchinterest, part1, part2, 0)
-		task.wait()
-		pcall(firetouchinterest, part1, part2, 1)
-	end
-end
+end)
 
 -- Universal executor HTTP POST helper for Discord Webhooks
 local function sendWebhook(url, payload)
@@ -88,7 +70,6 @@ function Movement.new(config)
 		connections = {},
 	}, Movement)
 
-	-- Neutralize client anti-cheat on startup
 	self:neutralizeAntiCheat()
 
 	return self
@@ -104,7 +85,6 @@ function Movement:_context()
 	return hum, root
 end
 
--- Neutralizes ObbyAntiTP and lagback scripts
 function Movement:neutralizeAntiCheat()
 	pcall(function()
 		workspace:SetAttribute("ClientObbyAntiTp", false)
@@ -124,7 +104,6 @@ function Movement:neutralizeAntiCheat()
 	pcall(function() clean(LocalPlayer.Character) end)
 end
 
--- Speed customization (1 - 1000)
 function Movement:setSpeed(speed)
 	self.customSpeed = math.clamp(tonumber(speed) or 60, 1, 1000)
 	if self.speedBypassRunning or self.autoFarmAllRunning or self.autoFarmBestRunning then
@@ -145,7 +124,6 @@ function Movement:toggleSpeedBypass(enabled)
 		end
 		self.notify(string.format("Speed Bypass enabled (Speed: %d)", self.customSpeed), "success")
 
-		-- Maintain speed connection
 		if not self.connections.speedLoop then
 			self.connections.speedLoop = RunService.Stepped:Connect(function()
 				if self.speedBypassRunning or self.autoFarmAllRunning or self.autoFarmBestRunning then
@@ -220,8 +198,10 @@ function Movement:logEggStolen(entry)
 		return
 	end
 
-	local petName = entry.petName or entry.name or "Egg"
+	local cleanDisplay = entry.cleanDisplay or string.format("(%s) %s", entry.eggName or "Normal Egg", entry.petName or "Chicken")
+	local moneyText = entry.moneyText or "+$25/s"
 	local rarity = entry.rarity or "Common"
+
 	local rarityColorInt = 16777215
 	if rarity == "Divine" then
 		rarityColorInt = 64764
@@ -241,11 +221,11 @@ function Movement:logEggStolen(entry)
 		embeds = {
 			{
 				title = "🥚 Egg Stolen & Deposited!",
-				description = string.format("**%s** stole a **%s** (%s)!", LocalPlayer.Name, petName, rarity),
+				description = string.format("**%s** stole a **%s** (%s)!", LocalPlayer.Name, cleanDisplay, rarity),
 				color = rarityColorInt,
 				fields = {
-					{ name = "Pet Name", value = petName, inline = true },
-					{ name = "Money / Sec", value = entry.moneyText or "+$0/s", inline = true },
+					{ name = "Egg & Pet", value = cleanDisplay, inline = true },
+					{ name = "Money / Sec", value = moneyText, inline = true },
 					{ name = "Rarity", value = rarity, inline = true },
 					{ name = "Player", value = LocalPlayer.Name, inline = true },
 				},
@@ -359,7 +339,7 @@ function Movement:teleportToClosestEgg()
 		return false
 	end
 	if self:teleportTo(closest.position) then
-		self.notify(string.format("Teleported to %s (%.0f studs)", closest.petName, closest.distance), "success")
+		self.notify(string.format("Teleported to %s (%.0f studs)", closest.cleanDisplay, closest.distance), "success")
 		return true
 	end
 	return false
@@ -372,7 +352,7 @@ function Movement:teleportToBestEgg()
 		return false
 	end
 	if self:teleportTo(best.position) then
-		self.notify(string.format("Teleported to best egg (%s - %s)", best.petName, best.moneyText), "success")
+		self.notify(string.format("Teleported to best egg (%s - %s)", best.cleanDisplay, best.moneyText), "success")
 		return true
 	end
 	return false
@@ -422,39 +402,58 @@ function Movement:teleportToClosestPlayer()
 	return false
 end
 
--- Grabs an egg instance (fires prompt or touch)
-function Movement:grabEgg(targetEntry)
+-- Steals an egg by actively holding E (ProximityPrompt simulation for 1.2s + game remote)
+function Movement:stealEgg(targetEntry)
 	local _, root = self:_context()
 	if not root or not targetEntry then
 		return false
 	end
 
-	local inst = targetEntry.instance
-	if not inst or not inst.Parent then
-		return false
+	local prompt = targetEntry.prompt
+	if not prompt and targetEntry.model and targetEntry.model:IsA("Instance") then
+		prompt = EggData.getPrompt(targetEntry.model)
+	end
+	if not prompt and targetEntry.instance and targetEntry.instance:IsA("Instance") then
+		prompt = EggData.getPrompt(targetEntry.instance)
 	end
 
-	local prompt = EggData.getPrompt(inst)
-	if prompt then
-		firePrompt(prompt)
-	end
-
-	local eggPart = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
-	if eggPart then
-		fireTouch(root, eggPart)
-		if not eggPart.Anchored then
-			pcall(function()
-				eggPart.CFrame = root.CFrame
-				eggPart.CanCollide = false
-			end)
+	-- 1. If ProximityPrompt found, hold E for full duration
+	if prompt and prompt:IsA("ProximityPrompt") then
+		local duration = prompt.HoldDuration
+		if not duration or duration <= 0 then
+			duration = workspace:GetAttribute("FastEggPickupTime") and 0.25 or 1.2
 		end
+
+		if fireproximityprompt then
+			pcall(fireproximityprompt, prompt, 0, true)
+			pcall(fireproximityprompt, prompt, duration, true)
+		end
+
+		pcall(function()
+			prompt:InputHoldBegin()
+		end)
+
+		task.wait(duration + 0.1)
+
+		pcall(function()
+			prompt:InputHoldEnd()
+		end)
+	else
+		task.wait(1.2)
+	end
+
+	-- 2. Call EggState.CarryFieldEgg if module exists
+	if eggStateModule and eggStateModule.CarryFieldEgg and targetEntry.uid then
+		pcall(function()
+			eggStateModule.CarryFieldEgg(targetEntry.uid, targetEntry.slotKey)
+		end)
 	end
 
 	return true
 end
 
 -- Launch Exploit Instant TP (BK's Hub method):
--- Grabs a nearby egg first to register carry state / launch physics, then teleports directly to target egg, grabs it, and glides home at Bypassed Speed!
+-- Grabs a nearby egg first to register carry state / launch physics, then teleports directly to target egg, steals it, and glides home at Bypassed Speed!
 function Movement:instantTpToEgg(targetEntry)
 	local hum, root = self:_context()
 	if not hum or not root then
@@ -472,19 +471,18 @@ function Movement:instantTpToEgg(targetEntry)
 	-- 1. Grab launch egg nearby if available
 	local nearby = EggData.nearby(30)
 	local launchEgg = nearby[1]
-	if launchEgg and launchEgg.instance ~= targetEntry.instance then
-		self:grabEgg(launchEgg)
-		task.wait(0.1)
+	if launchEgg and launchEgg.uid ~= targetEntry.uid then
+		self:stealEgg(launchEgg)
+		task.wait(0.15)
 	end
 
 	-- 2. Teleport straight to target egg
 	root.CFrame = CFrame.new(targetEntry.position + Vector3.new(0, 3, 0))
 	task.wait(0.2)
 
-	-- 3. Grab target egg
-	self:grabEgg(targetEntry)
-	task.wait(0.25)
-	self:grabEgg(targetEntry)
+	-- 3. Steal target egg by holding E
+	self:stealEgg(targetEntry)
+	task.wait(0.3)
 
 	self:logEggStolen(targetEntry)
 
@@ -492,12 +490,12 @@ function Movement:instantTpToEgg(targetEntry)
 	local basePos = self:findBasePosition()
 	hum.WalkSpeed = self.customSpeed
 	hum:MoveTo(basePos)
-	self.notify(string.format("Stolen %s! Gliding home at speed %d", targetEntry.petName, self.customSpeed), "success")
+	self.notify(string.format("Stolen %s! Gliding home at speed %d", targetEntry.cleanDisplay, self.customSpeed), "success")
 
 	return true
 end
 
--- Auto Farm (Best Eggs Only): Searches specifically for the highest money/sec and rarity egg
+-- Auto Farm (Best Eggs Only): Searches specifically for the highest money/sec egg
 function Movement:toggleAutoFarmBest(enabled)
 	if not enabled then
 		self.autoFarmBestRunning = false
@@ -528,10 +526,9 @@ function Movement:toggleAutoFarmBest(enabled)
 			-- 1. Walk to the best egg at custom speed
 			self:safeWalkTo(target.position, 12)
 
-			-- 2. Grab egg
-			self:grabEgg(target)
+			-- 2. Steal egg by holding E
+			self:stealEgg(target)
 			task.wait(0.3)
-			self:grabEgg(target)
 
 			-- Log steal to webhook
 			self:logEggStolen(target)
@@ -575,10 +572,9 @@ function Movement:toggleAutoFarmAll(enabled)
 			-- 1. Walk to egg at custom speed
 			self:safeWalkTo(target.position, 10)
 
-			-- 2. Grab egg
-			self:grabEgg(target)
+			-- 2. Steal egg by holding E
+			self:stealEgg(target)
 			task.wait(0.3)
-			self:grabEgg(target)
 
 			-- Log steal to webhook
 			self:logEggStolen(target)
@@ -605,7 +601,6 @@ function Movement:toggleAutoCash(enabled)
 	Util.spawn(function()
 		while self.autoCashRunning do
 			pcall(function()
-				-- Call game remote if exists
 				local ok, Remotes = pcall(function()
 					return require(ReplicatedStorage.Shared.Remotes)
 				end)
@@ -627,11 +622,10 @@ function Movement:toggleAutoCash(enabled)
 	end)
 end
 
--- Auto Equip Best Pets: Calls require(ReplicatedStorage.Shared.Remotes).Haul.WearBest:InvokeServer()
+-- Auto Equip Best Pets
 function Movement:equipBestPets()
 	local success = false
 
-	-- 1. Try require(ReplicatedStorage.Shared.Remotes)
 	pcall(function()
 		local Remotes = require(ReplicatedStorage.Shared.Remotes)
 		if Remotes and Remotes.Haul and Remotes.Haul.WearBest then
@@ -640,7 +634,6 @@ function Movement:equipBestPets()
 		end
 	end)
 
-	-- 2. Try direct instance search in ReplicatedStorage
 	if not success then
 		pcall(function()
 			for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
