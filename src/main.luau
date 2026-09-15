@@ -1078,14 +1078,20 @@ function buildHub()
                             local root = getRootPart(char)
                             local humanoid = getHumanoid(char)
                             if root and humanoid then
+                                local closestEgg = nil
+                                local closestDist = math.huge
                                 for _, obj in ipairs(workspace:GetDescendants()) do
                                     local eggPart = isEgg(obj) and getEggPart(obj)
                                     if eggPart then
                                         local dist = (eggPart.Position - root.Position).Magnitude
-                                        if dist < 30 then
-                                            root.CFrame = CFrame.lookAt(root.Position, eggPart.Position) * CFrame.new(0, 0, -5)
+                                        if dist < closestDist and dist < 30 then
+                                            closestDist = dist
+                                            closestEgg = eggPart
                                         end
                                     end
+                                end
+                                if closestEgg then
+                                    root.CFrame = CFrame.lookAt(root.Position, closestEgg.Position) * CFrame.new(0, 0, -5)
                                 end
                             end
                         end
@@ -1168,13 +1174,11 @@ function buildHub()
                 end, true)
 
                 tab:AddButton("Clear All ESP", function()
-                    eggEspActive = false
-                    playerEspActive = false
                     clearEggEsp()
                     clearPlayerEsp()
                 end, true)
 
-                tab:AddLabel("Features: Egg ESP, Player ESP, Best Egg Auto, Auto Farm, Prediction ESP, Teleport, Clear All.", true)
+                tab:AddLabel("Features: Egg ESP, Player ESP, closest-egg collection, auto farm, prediction, teleports, and cleanup.", true)
             end,
             Cleanup = function()
                 eggEspActive = false
