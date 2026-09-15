@@ -23,6 +23,7 @@ SITE_URL = os.getenv("SITE_URL", "").rstrip("/")
 SITE_ADMIN_TOKEN = os.getenv("SITE_ADMIN_TOKEN", "")
 
 intents = discord.Intents.default()
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
