@@ -322,8 +322,137 @@ return function(hub, tab, cleanup)
 		end)
 	end)
 
+	local camera = workspace.CurrentCamera
+	local defaultFov = camera and camera.FieldOfView or 70
+	tab:AddSlider("Field of View (FOV)", 60, 120, defaultFov, function(val)
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam.FieldOfView = val
+		end
+	end, 1)
+
+	-- Player ESP
+	local playerEspActive = false
+	local espHighlights = {}
+	local function clearPlayerEsp()
+		for _, h in pairs(espHighlights) do
+			if h and h.Parent then
+				pcall(function() h:Destroy() end)
+			end
+		end
+		espHighlights = {}
+	end
+
+	local function updatePlayerEsp()
+		clearPlayerEsp()
+		if not playerEspActive then return end
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= Players.LocalPlayer and plr.Character then
+				pcall(function()
+					local hl = Instance.new("Highlight")
+					hl.Name = "FrostPlayerEsp"
+					hl.Adornee = plr.Character
+					hl.FillColor = Color3.fromRGB(80, 180, 255)
+					hl.OutlineColor = Color3.new(1, 1, 1)
+					hl.FillTransparency = 0.5
+					hl.OutlineTransparency = 0
+					hl.Parent = plr.Character
+					table.insert(espHighlights, hl)
+				end)
+			end
+		end
+	end
+
+	tab:AddToggle("Player ESP (Chams Highlight)", false, function(on)
+		playerEspActive = on
+		if on then
+			updatePlayerEsp()
+			hub:notify("Player ESP enabled", "success")
+		else
+			clearPlayerEsp()
+			hub:notify("Player ESP disabled", "info")
+		end
+	end)
+	cleanup.track(clearPlayerEsp)
+
+	-- --------------------------------------------------------- TELEPORT TO PLAYER
+	tab:AddSection("Player Teleportation")
+
+	local function getPlayerNames()
+		local names = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= Players.LocalPlayer then
+				table.insert(names, p.Name)
+			end
+		end
+		if #names == 0 then
+			table.insert(names, "No other players")
+		end
+		return names
+	end
+
+	local targetPlayerName = ""
+	local playerDropdown = tab:AddDropdown("Select Player", getPlayerNames(), nil, function(selected)
+		targetPlayerName = tostring(selected)
+	end)
+
+	tab:AddButton("Teleport to Selected Player", function()
+		if targetPlayerName == "" or targetPlayerName == "No other players" then
+			hub:notify("Select a valid player first", "warning")
+			return
+		end
+		local target = Players:FindFirstChild(targetPlayerName)
+		if not target or not target.Character then
+			hub:notify("Player character not found", "error")
+			return
+		end
+		local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
+		local myRoot = Util.getRootPart()
+		if targetRoot and myRoot then
+			myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
+			hub:notify("Teleported to " .. targetPlayerName, "success")
+		else
+			hub:notify("Unable to teleport (root part missing)", "error")
+		end
+	end)
+
+	tab:AddButton("Refresh Player List", function()
+		if playerDropdown and playerDropdown.SetOptions then
+			playerDropdown.SetOptions(getPlayerNames())
+			hub:notify("Player list refreshed", "info")
+		end
+	end)
+
 	-- --------------------------------------------------------- PERFORMANCE
-	tab:AddSection("Performance & Optimization")
+	tab:AddSection("Performance & AFK")
+
+	local antiAfkConn = nil
+	tab:AddToggle("Anti-AFK (20-Minute Idle Bypass)", false, function(on)
+		if on then
+			if not antiAfkConn then
+				antiAfkConn = Players.LocalPlayer.Idled:Connect(function()
+					local VirtualUser = game:GetService("VirtualUser")
+					if VirtualUser then
+						VirtualUser:CaptureController()
+						VirtualUser:ClickButton2(Vector2.zero)
+					end
+				end)
+			end
+			hub:notify("Anti-AFK enabled! You won't be disconnected.", "success")
+		else
+			if antiAfkConn then
+				antiAfkConn:Disconnect()
+				antiAfkConn = nil
+			end
+			hub:notify("Anti-AFK disabled", "info")
+		end
+	end)
+	cleanup.track(function()
+		if antiAfkConn then
+			antiAfkConn:Disconnect()
+			antiAfkConn = nil
+		end
+	end)
 
 	tab:AddButton("Boost FPS / Low Graphics Mode", function()
 		pcall(function()
