@@ -11,9 +11,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 TOKEN = os.getenv("DISCORD_TOKEN", "")
-ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "0"))
+ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "1549392560256974939"))
 GUILD_ID = os.getenv("GUILD_ID", "")
 REPO_PATH = os.path.join(BASE_DIR, "keys.json")
+TICKETS_CHANNEL_ID = 1549104953463803934
+FROST_EMOJI = "<:frost:1549461399065993226>"
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "Frost-GG-Hud/Loader")
@@ -61,40 +63,52 @@ def not_allowed_embed() -> discord.Embed:
     )
 
 
-@tree.command(name="key", description="View the current working free key (visible to everyone in this channel)")
+@tree.command(name="key", description="View the current working free key")
 async def key_command(interaction: discord.Interaction):
-    if not await has_permission(interaction):
-        await interaction.response.send_message(embed=not_allowed_embed(), ephemeral=True)
-        return
-
     current = load_key()
     embed = discord.Embed(
-        title="\U0001F511 Current Working Free Key",
+        title="\U0001F511 Current Working Key",
         description=f"```\n{current}\n```",
-        color=discord.Color.green(),
+        color=discord.Color.from_rgb(0, 215, 255),
     )
-    embed.set_footer(text="Copy the key and enter it in the Frost GUI.")
+    embed.set_footer(text="Copy this key and enter it in the Frost Hub prompt.")
     await interaction.response.send_message(embed=embed)
 
 
-@tree.command(name="script", description="Get the Frost loader script to paste into your executor (role-gated)")
-async def script_command(interaction: discord.Interaction):
-    if not await has_permission(interaction):
-        await interaction.response.send_message(embed=not_allowed_embed(), ephemeral=True)
-        return
+@tree.command(name="info", description="Get the Frost script loader and current key")
+async def info_command(interaction: discord.Interaction):
+    current = load_key()
+    script_url = github_raw_url("src/Loader.luau")
+    loader = f'loadstring(game:HttpGet("{script_url}"))()'
 
+    description = (
+        f"**Script:**\n```lua\n{loader}\n```\n"
+        f"**Key:**\n```\n{current}\n```\n"
+        f"If you have any questions, please open a support ticket in <#{TICKETS_CHANNEL_ID}>."
+    )
+
+    embed = discord.Embed(
+        title=f"{FROST_EMOJI} Frost Hub",
+        description=description,
+        color=discord.Color.from_rgb(0, 215, 255),
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+@tree.command(name="script", description="Get the Frost loader script")
+async def script_command(interaction: discord.Interaction):
     script_url = github_raw_url("src/Loader.luau")
     loader = f'loadstring(game:HttpGet("{script_url}"))()'
     embed = discord.Embed(
-        title="\U0001F916 Frost Loader Script",
-        description=f"Paste this exact line into your Roblox executor:\n\n```lua\n{loader}\n```\n\nSource: `{script_url}`",
-        color=discord.Color.blue(),
+        title=f"{FROST_EMOJI} Frost Loader Script",
+        description=f"Paste this line into your Roblox executor:\n\n```lua\n{loader}\n```",
+        color=discord.Color.from_rgb(0, 215, 255),
     )
-    embed.set_footer(text="Run /key next, then enter that key in the Frost GUI.")
+    embed.set_footer(text=f"Questions? Open a ticket in #{TICKETS_CHANNEL_ID}")
     await interaction.response.send_message(embed=embed)
 
 
-@tree.command(name="setkey", description="Update the current working free key, then publish it (role-gated)")
+@tree.command(name="setkey", description="Update the current working free key (staff only)")
 async def setkey_command(interaction: discord.Interaction, key: str):
     if not await has_permission(interaction):
         await interaction.response.send_message(embed=not_allowed_embed(), ephemeral=True)
