@@ -78,5 +78,9 @@ return function(tab, text, callback, danger)
 		end
 	end)
 
+	if tab.registerWidget then
+		tab:registerWidget(card, HEIGHT, GAP, text)
+	end
+
 	return { _card = card, _label = label }
 end
