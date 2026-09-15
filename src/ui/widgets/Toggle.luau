@@ -102,6 +102,10 @@ return function(tab, text, default, onChange)
 
 	apply()
 
+	if tab.registerWidget then
+		tab:registerWidget(card, HEIGHT, GAP, text)
+	end
+
 	widget = {
 		Get = function()
 			return value
