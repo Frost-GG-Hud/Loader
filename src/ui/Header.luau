@@ -92,22 +92,68 @@ function Header.new(config)
 
 	local titleLabel = Builder.label({
 		Name = "Title",
-		Size = UDim2.new(0, 130, 0, 20),
-		Position = UDim2.fromOffset(42, 14),
+		Size = UDim2.new(0, 110, 0, 18),
+		Position = UDim2.fromOffset(42, 8),
 		Font = Theme.FontBold,
-		TextSize = 14,
-		Text = config.title or "Frost Hub",
+		TextSize = 13,
+		Text = config.title or "FROST HUB",
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextColor3 = Theme.TextMain,
 		ZIndex = 7,
 		Parent = header,
 	})
 
-	-- Status Pills Container (Zeroin style)
+	local subtitleLabel = Builder.label({
+		Name = "Subtitle",
+		Size = UDim2.new(0, 110, 0, 14),
+		Position = UDim2.fromOffset(42, 26),
+		Font = Theme.FontRegular,
+		TextSize = 10,
+		Text = "Steal An Egg",
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextColor3 = Theme.TextDim,
+		ZIndex = 7,
+		Parent = header,
+	})
+
+	-- Search Bar in Header (OMG HUB style)
+	local searchBox = Builder.frame({
+		Name = "HeaderSearch",
+		Size = UDim2.new(0, 150, 0, 26),
+		Position = UDim2.fromOffset(162, 12),
+		BackgroundColor3 = Theme.SurfaceAlt,
+		ZIndex = 7,
+		Parent = header,
+	})
+	Builder.corner(searchBox, 7)
+	Builder.stroke(searchBox, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.4,
+	})
+
+	Builder.new("TextBox", {
+		Name = "Input",
+		Size = UDim2.new(1, -12, 1, 0),
+		Position = UDim2.fromOffset(8, 0),
+		BackgroundTransparency = 1,
+		Font = Theme.FontRegular,
+		TextSize = 10,
+		Text = "",
+		PlaceholderText = "🔍 Search features...",
+		PlaceholderColor3 = Theme.TextMuted,
+		TextColor3 = Theme.TextMain,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 8,
+		Parent = searchBox,
+	})
+
+	-- Status Pills Container (OMG HUB style)
 	local pillsContainer = Builder.frame({
 		Name = "Pills",
-		Size = UDim2.new(0, 260, 0, 24),
-		Position = UDim2.new(1, -(BUTTON_SIZE * 2 + 285), 0, 12),
+		Size = UDim2.new(0, 240, 0, 24),
+		Position = UDim2.new(1, -(BUTTON_SIZE * 2 + 265), 0, 13),
 		BackgroundTransparency = 1,
 		ZIndex = 7,
 		Parent = header,
@@ -136,11 +182,11 @@ function Header.new(config)
 		Builder.stroke(pill, {
 			Color = Theme.Border,
 			Thickness = 1,
-			Transparency = 0.3,
+			Transparency = 0.35,
 		})
 		Builder.padding(pill, {
-			PaddingLeft = UDim.new(0, 8),
-			PaddingRight = UDim.new(0, 8),
+			PaddingLeft = UDim.new(0, 7),
+			PaddingRight = UDim.new(0, 7),
 		})
 
 		local lbl = Builder.label({
@@ -156,26 +202,40 @@ function Header.new(config)
 		return pill, lbl
 	end
 
-	local _, gameLabel = makePill("GamePill", "Steal An Egg", "🎮", Theme.Accent, 1)
-	local _, fpsLabel = makePill("FpsPill", "60 FPS", "📶", Theme.Success, 2)
-	local _, pingLabel = makePill("PingPill", "Real", "⚡", Theme.AccentGlow, 3)
+	local execName = "Frost"
+	if identifyexecutor then
+		pcall(function() execName = identifyexecutor() end)
+	end
 
-	-- Live FPS and Ping monitor
+	local _, execLabel = makePill("ExecPill", execName, "🔌", Theme.Accent, 1)
+	local _, timerLabel = makePill("TimerPill", "00:00", "⏱️", Theme.TextDim, 2)
+	local _, fpsLabel = makePill("FpsPill", "60 FPS", "⚡", Theme.Success, 3)
+	local _, pingLabel = makePill("PingPill", "45 ms", "📶", Theme.AccentGlow, 4)
+
+	-- Session timer & FPS/Ping monitor
 	local RunService = game:GetService("RunService")
 	local Stats = game:GetService("Stats")
+	local startTime = os.clock()
 	local lastTime = os.clock()
 	local frames = 0
 	local statConn = RunService.RenderStepped:Connect(function()
 		frames = frames + 1
 		local now = os.clock()
+
+		-- Update timer every second
+		local elapsed = math.floor(now - startTime)
+		local mins = math.floor(elapsed / 60)
+		local secs = elapsed % 60
+		timerLabel.Text = string.format("⏱️ %02d:%02d", mins, secs)
+
 		if now - lastTime >= 1 then
 			local fps = math.round(frames / (now - lastTime))
 			local ping = 0
 			pcall(function()
 				ping = math.round(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
 			end)
-			fpsLabel.Text = string.format("📶 %d FPS", fps)
-			pingLabel.Text = string.format("⚡ %dms", ping)
+			fpsLabel.Text = string.format("⚡ %d FPS", fps)
+			pingLabel.Text = string.format("📶 %d ms", ping)
 			if fps < 30 then
 				fpsLabel.TextColor3 = Theme.Danger
 			elseif fps < 50 then
