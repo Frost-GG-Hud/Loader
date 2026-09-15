@@ -1,4 +1,5 @@
--- Egg discovery, metadata reading, Pet name resolution, and Money/sec extraction.
+-- Egg discovery, metadata reading, Pet & Egg name resolution, and Money/sec extraction.
+-- Integrates directly with ReplicatedStorage Client.EggState and Data.Assets for 100% accurate game data.
 
 local ctx = ...
 local Util = ctx.require("core/Util")
@@ -20,24 +21,52 @@ local RARITY_COLORS = {
 	Secret = Color3.fromRGB(255, 230, 80),
 }
 
-local EggData = {}
-local cache = { instances = {}, stampedAt = -math.huge }
-local assetDirectory = nil
+local TIER_MONEY = {
+	Common = 25,
+	Uncommon = 75,
+	Rare = 250,
+	Epic = 1200,
+	Legendary = 7500,
+	Mythic = 50000,
+	Divine = 350000,
+	Secret = 2500000,
+}
 
--- Attempt to load Assets directory from ReplicatedStorage
+local EggData = {}
+local cache = { entries = {}, stampedAt = -math.huge }
+local assetDirectory = nil
+local eggStateModule = nil
+local areaEggSlotIdentity = nil
+
+-- Attempt to require game data modules
 pcall(function()
-	local assetsModule = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Assets")
-	if assetsModule and assetsModule:IsA("ModuleScript") then
-		local loaded = require(assetsModule)
+	local assetsMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Assets")
+	if assetsMod and assetsMod:IsA("ModuleScript") then
+		local loaded = require(assetsMod)
 		if type(loaded) == "table" then
 			assetDirectory = loaded.Directory or loaded
 		end
 	end
 end)
 
+pcall(function()
+	local eggStateMod = ReplicatedStorage:FindFirstChild("Client") and ReplicatedStorage.Client:FindFirstChild("EggState")
+	if eggStateMod and eggStateMod:IsA("ModuleScript") then
+		eggStateModule = require(eggStateMod)
+	end
+end)
+
+pcall(function()
+	local identMod = ReplicatedStorage:FindFirstChild("Shared") and ReplicatedStorage.Shared:FindFirstChild("Util")
+		and ReplicatedStorage.Shared.Util:FindFirstChild("AreaEggSlotIdentity")
+	if identMod and identMod:IsA("ModuleScript") then
+		areaEggSlotIdentity = require(identMod)
+	end
+end)
+
 function EggData.formatMoney(amount)
 	if not amount or type(amount) ~= "number" or amount <= 0 then
-		return "+$0/s"
+		return "+$25/s"
 	end
 	if amount >= 1e9 then
 		return string.format("+$%.1fB/s", amount / 1e9)
@@ -50,21 +79,27 @@ function EggData.formatMoney(amount)
 	end
 end
 
-function EggData.isEgg(instance)
-	if not (instance:IsA("BasePart") or instance:IsA("Model")) then
+-- Checks if a string looks like a 32-character hexadecimal UID
+local function isHexUid(str)
+	if type(str) ~= "string" or #str ~= 32 then
 		return false
 	end
-	if instance.Parent and instance.Parent.Name == "AreaEggSlotsClient" then
-		return true
-	end
-	local lower = string.lower(instance.Name)
-	if string.find(lower, "egg", 1, true) ~= nil then
-		return true
-	end
-	if instance:FindFirstChild("EggType") ~= nil or instance:GetAttribute("EggType") ~= nil then
-		return true
-	end
-	if instance:FindFirstChild("EggPoint", true) ~= nil then
+	return string.match(str, "^[0-9a-fA-F]+$") ~= nil
+end
+
+-- Blacklist check for non-egg parts
+function EggData.isIgnoredPart(name)
+	local lower = string.lower(tostring(name))
+	if string.find(lower, "bounds", 1, true)
+		or string.find(lower, "fit", 1, true)
+		or string.find(lower, "machine", 1, true)
+		or string.find(lower, "fuse", 1, true)
+		or string.find(lower, "stand", 1, true)
+		or string.find(lower, "shop", 1, true)
+		or string.find(lower, "nest", 1, true)
+		or string.find(lower, "base", 1, true)
+		or string.find(lower, "platform", 1, true)
+	then
 		return true
 	end
 	return false
@@ -95,150 +130,236 @@ function EggData.worldPositionOf(instance)
 	return nil
 end
 
--- Extracts the Pet Name that will hatch and the Money Per Second
-function EggData.getPetInfo(instance)
-	local petName = nil
-	local moneyPerSec = 0
+-- Resolves the clean Egg Name, Pet Name, and Money Per Second
+function EggData.resolveEggMetadata(category, uid, instance)
+	local petName = "Chicken"
+	local eggName = "Normal Egg"
 	local rarity = "Common"
+	local moneyPerSec = 25
 
-	-- 1. Try category key from attributes or children
-	local category = instance:GetAttribute("AssetCategory")
-		or instance:GetAttribute("Category")
-		or instance:GetAttribute("EggType")
-		or instance:GetAttribute("PetName")
-
-	if not category then
-		local catVal = instance:FindFirstChild("Category") or instance:FindFirstChild("EggType") or instance:FindFirstChild("PetName")
-		if catVal and catVal:IsA("StringValue") then
-			category = catVal.Value
-		end
-	end
-
-	-- 2. Lookup in Assets directory if available
+	-- 1. Try Assets Directory lookup
 	if category and assetDirectory and assetDirectory[category] then
 		local entry = assetDirectory[category]
-		if entry.Egg and entry.Egg.DisplayName then
-			petName = entry.Egg.DisplayName
-		elseif entry.DisplayName then
+		if entry.DisplayName then
 			petName = entry.DisplayName
 		end
-
+		if entry.Egg and entry.Egg.DisplayName then
+			eggName = entry.Egg.DisplayName
+		end
 		if entry.Rarity then
-			rarity = entry.Rarity.DisplayName or entry.Rarity._id or rarity
-			if type(entry.Rarity.DefaultRarityValue) == "number" then
+			rarity = entry.Rarity.DisplayName or entry.Rarity._id or "Common"
+			if type(entry.Rarity.DefaultRarityValue) == "number" and entry.Rarity.DefaultRarityValue > 0 then
 				moneyPerSec = entry.Rarity.DefaultRarityValue
 			end
 		end
-
-		if type(entry.Income) == "number" then
+		if type(entry.Income) == "number" and entry.Income > 0 then
 			moneyPerSec = entry.Income
 		end
+	elseif category and type(category) == "string" and not isHexUid(category) then
+		petName = category
+		eggName = category .. " Egg"
 	end
 
-	-- 3. Read money from attributes
-	local moneyAttr = instance:GetAttribute("Income")
-		or instance:GetAttribute("MoneyPerSecond")
-		or instance:GetAttribute("CashPerSecond")
-		or instance:GetAttribute("IncomePerSecond")
-		or instance:GetAttribute("Profit")
-		or instance:GetAttribute("Value")
+	-- 2. Read from instance attributes
+	if instance then
+		local attrPet = instance:GetAttribute("PetName") or instance:GetAttribute("Pet") or instance:GetAttribute("DisplayName")
+		if type(attrPet) == "string" and attrPet ~= "" and not isHexUid(attrPet) and not EggData.isIgnoredPart(attrPet) then
+			petName = attrPet
+		end
 
-	if type(moneyAttr) == "number" and moneyAttr > 0 then
-		moneyPerSec = moneyAttr
-	end
+		local attrEgg = instance:GetAttribute("EggName") or instance:GetAttribute("EggType")
+		if type(attrEgg) == "string" and attrEgg ~= "" and not isHexUid(attrEgg) and not EggData.isIgnoredPart(attrEgg) then
+			eggName = attrEgg
+		end
 
-	-- 4. Read pet name fallback from attributes or clean name
-	if not petName then
-		local nameAttr = instance:GetAttribute("DisplayName") or instance:GetAttribute("PetName") or instance:GetAttribute("Name")
-		if type(nameAttr) == "string" and nameAttr ~= "" and not string.find(nameAttr, "Slot", 1, true) then
-			petName = nameAttr
+		local attrMoney = instance:GetAttribute("Income")
+			or instance:GetAttribute("MoneyPerSecond")
+			or instance:GetAttribute("Profit")
+			or instance:GetAttribute("Value")
+		if type(attrMoney) == "number" and attrMoney > 0 then
+			moneyPerSec = attrMoney
+		end
+
+		local attrRarity = instance:GetAttribute("Rarity") or instance:GetAttribute("RarityName")
+		if type(attrRarity) == "string" and attrRarity ~= "" then
+			rarity = attrRarity
 		end
 	end
 
-	-- Clean up if still nil or contains slot numbers like "AreaEggSlot_42"
-	if not petName or string.find(petName, "Slot", 1, true) or string.find(petName, "^%d+$") then
-		local rawName = instance.Name
-		-- Strip slot prefixes and numbers
-		local clean = string.gsub(rawName, "AreaEggSlot_", "")
-		clean = string.gsub(clean, "[_%d]+$", "")
-		clean = string.gsub(clean, "^_+", "")
-		if clean ~= "" and clean ~= "Egg" then
-			petName = clean
-		else
-			petName = "Mystery Egg"
-		end
+	-- Fallback tier value if moneyPerSec is 0
+	if moneyPerSec <= 0 or moneyPerSec == 25 then
+		moneyPerSec = TIER_MONEY[rarity] or 25
 	end
 
-	-- 5. Resolve rarity & color
 	local rarityColor = RARITY_COLORS[rarity] or RARITY_COLORS.Common
-	if moneyPerSec >= 1000000 then
-		rarity = "Divine"
-		rarityColor = RARITY_COLORS.Divine
-	elseif moneyPerSec >= 100000 then
-		rarity = "Mythic"
-		rarityColor = RARITY_COLORS.Mythic
-	elseif moneyPerSec >= 10000 then
-		rarity = "Legendary"
-		rarityColor = RARITY_COLORS.Legendary
-	elseif moneyPerSec >= 2500 then
-		rarity = "Epic"
-		rarityColor = RARITY_COLORS.Epic
-	elseif moneyPerSec >= 500 then
-		rarity = "Rare"
-		rarityColor = RARITY_COLORS.Rare
-	elseif moneyPerSec >= 100 then
-		rarity = "Uncommon"
-		rarityColor = RARITY_COLORS.Uncommon
-	end
+	local cleanDisplay = string.format("(%s) %s", eggName, petName)
 
-	return petName, moneyPerSec, rarity, rarityColor
+	return {
+		petName = petName,
+		eggName = eggName,
+		cleanDisplay = cleanDisplay,
+		rarity = rarity,
+		rarityColor = rarityColor,
+		moneyPerSec = moneyPerSec,
+		moneyText = EggData.formatMoney(moneyPerSec),
+	}
 end
 
 function EggData.getPrompt(instance)
-	return instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if not instance then return nil end
+	local prompt = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if prompt then return prompt end
+
+	-- Check parent if instance was an egg part
+	if instance.Parent and instance.Parent ~= workspace then
+		prompt = instance.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
+	end
+	return prompt
 end
 
 function EggData.scan(force)
 	local now = os.clock()
-	if not force and #cache.instances > 0 and (now - cache.stampedAt) < CACHE_TTL then
-		return cache.instances
+	if not force and #cache.entries > 0 and (now - cache.stampedAt) < CACHE_TTL then
+		return cache.entries
 	end
 
-	local found = {}
-	local seen = {}
+	local results = {}
+	local seenUids = {}
+	local seenInstances = {}
 
-	local function addIfEgg(inst)
-		if inst and not seen[inst] and EggData.isEgg(inst) then
-			seen[inst] = true
-			table.insert(found, inst)
-		end
+	-- Method 1: Query EggState.ReadFieldEggs() (The official game state)
+	if eggStateModule and eggStateModule.ReadFieldEggs then
+		pcall(function()
+			local snapshot = eggStateModule.ReadFieldEggs()
+			if snapshot and type(snapshot.Records) == "table" then
+				for _, record in ipairs(snapshot.Records) do
+					local uid = record.Uid
+					if uid and not seenUids[uid] then
+						seenUids[uid] = true
+
+						-- Resolve physical model
+						local model = workspace:FindFirstChild(uid)
+						if not model then
+							local clientFolder = workspace:FindFirstChild("AreaEggSlotsClient")
+							if clientFolder then
+								model = clientFolder:FindFirstChild(uid)
+							end
+						end
+
+						local worldPos = nil
+						if model then
+							worldPos = EggData.worldPositionOf(model)
+						elseif record.BoundsCFrame then
+							worldPos = record.BoundsCFrame.Position
+						end
+
+						if worldPos then
+							if model then
+								seenInstances[model] = true
+							end
+
+							local meta = EggData.resolveEggMetadata(record.AssetCategory, uid, model)
+							local prompt = model and EggData.getPrompt(model) or nil
+							local slotKey = nil
+							if areaEggSlotIdentity and areaEggSlotIdentity.LooksLikeFirstAreaUid(uid) then
+								slotKey = areaEggSlotIdentity.SlotKey(record.AreaId, record.NestId)
+							end
+
+							table.insert(results, {
+								uid = uid,
+								slotKey = slotKey,
+								instance = model or record,
+								model = model,
+								position = worldPos,
+								petName = meta.petName,
+								eggName = meta.eggName,
+								cleanDisplay = meta.cleanDisplay,
+								rarity = meta.rarity,
+								rarityColor = meta.rarityColor,
+								moneyPerSec = meta.moneyPerSec,
+								moneyText = meta.moneyText,
+								prompt = prompt,
+								record = record,
+							})
+						end
+					end
+				end
+			end
+		end)
 	end
 
+	-- Method 2: Scan AreaEggSlotsClient directly
 	local clientFolder = workspace:FindFirstChild("AreaEggSlotsClient")
 	if clientFolder then
 		for _, child in ipairs(clientFolder:GetChildren()) do
-			addIfEgg(child)
+			if child:IsA("Model") and not seenInstances[child] and not seenUids[child.Name] then
+				seenInstances[child] = true
+				seenUids[child.Name] = true
+
+				local worldPos = EggData.worldPositionOf(child)
+				if worldPos then
+					local category = child:GetAttribute("AssetCategory") or child:GetAttribute("Category")
+					local meta = EggData.resolveEggMetadata(category, child.Name, child)
+					local prompt = EggData.getPrompt(child)
+
+					table.insert(results, {
+						uid = child.Name,
+						instance = child,
+						model = child,
+						position = worldPos,
+						petName = meta.petName,
+						eggName = meta.eggName,
+						cleanDisplay = meta.cleanDisplay,
+						rarity = meta.rarity,
+						rarityColor = meta.rarityColor,
+						moneyPerSec = meta.moneyPerSec,
+						moneyText = meta.moneyText,
+						prompt = prompt,
+					})
+				end
+			end
 		end
 	end
 
-	local objects = workspace:FindFirstChild("__OBJECTS")
-	if objects then
-		for _, desc in ipairs(objects:GetDescendants()) do
-			addIfEgg(desc)
+	-- Method 3: Fallback scan for ProximityPrompts with ActionText == "Steal" or Name == "CarryAreaEgg"
+	for _, desc in ipairs(workspace:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") and (desc.Name == "CarryAreaEgg" or desc.ActionText == "Steal") then
+			local model = desc.Parent
+			while model and model ~= workspace and not model:IsA("Model") do
+				model = model.Parent
+			end
+
+			if model and model ~= workspace and not seenInstances[model] and not EggData.isIgnoredPart(model.Name) then
+				seenInstances[model] = true
+				local worldPos = EggData.worldPositionOf(model) or (desc.Parent:IsA("BasePart") and desc.Parent.Position)
+				if worldPos then
+					local meta = EggData.resolveEggMetadata(nil, model.Name, model)
+					table.insert(results, {
+						uid = model.Name,
+						instance = model,
+						model = model,
+						position = worldPos,
+						petName = meta.petName,
+						eggName = meta.eggName,
+						cleanDisplay = meta.cleanDisplay,
+						rarity = meta.rarity,
+						rarityColor = meta.rarityColor,
+						moneyPerSec = meta.moneyPerSec,
+						moneyText = meta.moneyText,
+						prompt = desc,
+					})
+				end
+			end
 		end
 	end
 
-	for _, inst in ipairs(workspace:GetDescendants()) do
-		addIfEgg(inst)
-	end
-
-	cache.instances = found
+	cache.entries = results
 	cache.stampedAt = now
-	return found
+	return results
 end
 
 function EggData.invalidate()
-	cache.instances = {}
+	cache.entries = {}
 	cache.stampedAt = -math.huge
 end
 
@@ -248,42 +369,30 @@ function EggData.nearby(radius, force)
 		return {}
 	end
 
+	local entries = EggData.scan(force)
 	local results = {}
-	for _, instance in ipairs(EggData.scan(force)) do
-		if instance.Parent then
-			local position = EggData.worldPositionOf(instance)
-			if position then
-				local distance = (position - root.Position).Magnitude
-				if radius == nil or distance <= radius then
-					local petName, moneyPerSec, rarity, rarityColor = EggData.getPetInfo(instance)
-					table.insert(results, {
-						instance = instance,
-						position = position,
-						distance = distance,
-						petName = petName,
-						moneyPerSec = moneyPerSec,
-						moneyText = EggData.formatMoney(moneyPerSec),
-						rarity = rarity,
-						rarityColor = rarityColor,
-						name = petName,
-					})
-				end
-			end
+
+	for _, entry in ipairs(entries) do
+		local dist = (entry.position - root.Position).Magnitude
+		if radius == nil or dist <= radius then
+			local item = table.clone(entry)
+			item.distance = dist
+			table.insert(results, item)
 		end
 	end
 
 	table.sort(results, function(a, b)
 		return a.distance < b.distance
 	end)
+
 	return results
 end
 
 function EggData.closest(radius)
-	local nearby = EggData.nearby(radius)
-	return nearby[1]
+	local list = EggData.nearby(radius)
+	return list[1]
 end
 
--- Best egg: highest money per second and rarity
 function EggData.bestValue()
 	local all = EggData.nearby(nil)
 	if #all == 0 then
