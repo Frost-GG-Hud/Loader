@@ -116,7 +116,32 @@ function Header.new(config)
 		Parent = header,
 	})
 
-	-- Search Bar in Header (OMG HUB style)
+	local versionBadge = Builder.frame({
+		Name = "VersionBadge",
+		Size = UDim2.fromOffset(36, 16),
+		Position = UDim2.fromOffset(116, 9),
+		BackgroundColor3 = Theme.SurfaceAlt,
+		ZIndex = 7,
+		Parent = header,
+	})
+	Builder.pillCorner(versionBadge)
+	Builder.stroke(versionBadge, {
+		Color = config.accent,
+		Thickness = 1,
+		Transparency = 0.4,
+	})
+	Builder.label({
+		Size = UDim2.new(1, 0, 1, 0),
+		Font = Theme.FontBold,
+		TextSize = 9,
+		Text = "v2.0",
+		TextColor3 = config.accent,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 8,
+		Parent = versionBadge,
+	})
+
+	-- Search Bar in Header (OMG HUB / Fluent style)
 	local searchBox = Builder.frame({
 		Name = "HeaderSearch",
 		Size = UDim2.new(0, 150, 0, 26),
@@ -126,13 +151,13 @@ function Header.new(config)
 		Parent = header,
 	})
 	Builder.corner(searchBox, 7)
-	Builder.stroke(searchBox, {
+	local searchStroke = Builder.stroke(searchBox, {
 		Color = Theme.Border,
 		Thickness = 1,
 		Transparency = 0.4,
 	})
 
-	Builder.new("TextBox", {
+	local searchInput = Builder.new("TextBox", {
 		Name = "Input",
 		Size = UDim2.new(1, -12, 1, 0),
 		Position = UDim2.fromOffset(8, 0),
@@ -148,6 +173,22 @@ function Header.new(config)
 		ZIndex = 8,
 		Parent = searchBox,
 	})
+
+	searchInput.Focused:Connect(function()
+		searchStroke.Color = config.accent
+		searchStroke.Transparency = 0.1
+	end)
+
+	searchInput.FocusLost:Connect(function()
+		searchStroke.Color = Theme.Border
+		searchStroke.Transparency = 0.4
+	end)
+
+	searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+		if config.onSearchChanged then
+			pcall(config.onSearchChanged, searchInput.Text)
+		end
+	end)
 
 	-- Status Pills Container (OMG HUB style)
 	local pillsContainer = Builder.frame({
@@ -305,6 +346,7 @@ function Header.new(config)
 		frame = header,
 		titleLabel = titleLabel,
 		pillsContainer = pillsContainer,
+		searchInput = searchInput,
 		destroy = function()
 			if statConn then
 				statConn:Disconnect()
