@@ -322,10 +322,14 @@ function Lib.CreateWindow(opts)
     end)
 
     local dragObject
+    local dragStart
+    local windowStart
     local function connectDragZone(zone)
         zone.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 dragObject = input
+                dragStart = input.Position
+                windowStart = window.Position
             end
         end)
         zone.InputEnded:Connect(function(input)
@@ -352,11 +356,12 @@ function Lib.CreateWindow(opts)
     addDragZone("DragRight", UDim2.new(0, 8, 1, -72), UDim2.new(1, -8, 0, 64))
     addDragZone("DragBottom", UDim2.new(1, -40, 0, 8), UDim2.new(0, 0, 1, -8))
     UserInputService.InputChanged:Connect(function(input)
-        if input == dragObject and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local pos = UserInputService:GetMouseLocation()
+        if dragObject and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            local pos = windowStart.Position + delta
             window.Position = UDim2.fromOffset(
-                math.clamp(pos.X - window.AbsoluteSize.X / 2, 0, workspace.CurrentCamera.ViewportSize.X - window.AbsoluteSize.X),
-                math.clamp(pos.Y - 10, 0, workspace.CurrentCamera.ViewportSize.Y - window.AbsoluteSize.Y)
+                math.clamp(pos.X.Offset, 0, workspace.CurrentCamera.ViewportSize.X - window.AbsoluteSize.X),
+                math.clamp(pos.Y.Offset, 0, workspace.CurrentCamera.ViewportSize.Y - window.AbsoluteSize.Y)
             )
         end
     end)
