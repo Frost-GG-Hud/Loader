@@ -37,6 +37,7 @@ FILES = [
     "src/ui/Tab.luau",
     "src/ui/Window.luau",
     "src/ui/widgets/Button.luau",
+    "src/ui/widgets/GridRow.luau",
     "src/ui/widgets/Init.luau",
     "src/ui/widgets/Label.luau",
     "src/ui/widgets/Section.luau",
