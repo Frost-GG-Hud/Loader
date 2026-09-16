@@ -387,7 +387,7 @@ function Movement:findBasePosition()
 	-- 1. Check official PlotState module
 	if plotStateModule and plotStateModule.GetLocalPlot then
 		local ok, plot = pcall(plotStateModule.GetLocalPlot)
-		if ok and plot and plot:IsA("Instance") then
+		if ok and plot and typeof(plot) == "Instance" then
 			local deposit = plot:FindFirstChild("EggPen", true)
 				or plot:FindFirstChild("Deposit", true)
 				or plot:FindFirstChild("Base", true)
@@ -610,7 +610,9 @@ function Movement:stealEgg(targetEntry)
 	end
 
 	local eggUid = targetEntry.uid
-	local eggModel = targetEntry.model or targetEntry.instance
+	local eggModel = (typeof(targetEntry.model) == "Instance" and targetEntry.model)
+		or (typeof(targetEntry.instance) == "Instance" and targetEntry.instance)
+		or nil
 	local slotKey = targetEntry.slotKey
 
 	-- 1. Direct invocation of RF/EggWorld/AskFieldEggCarry
@@ -624,21 +626,23 @@ function Movement:stealEgg(targetEntry)
 					pcall(function() rfCarry:InvokeServer(eggUid, slotKey) end)
 				end
 				pcall(function() rfCarry:InvokeServer({ Uid = eggUid, SlotKey = slotKey }) end)
-				pcall(function() rfCarry:InvokeServer(eggModel) end)
+				if eggModel and typeof(eggModel) == "Instance" then
+					pcall(function() rfCarry:InvokeServer(eggModel) end)
+				end
 			end
 		end
 	end)
 
 	-- 2. Fast ProximityPrompt trigger
 	local prompt = targetEntry.prompt
-	if not prompt and eggModel and eggModel:IsA("Instance") then
+	if not prompt and eggModel and typeof(eggModel) == "Instance" then
 		prompt = EggData.getPrompt(eggModel)
 	end
-	if not prompt and targetEntry.instance and targetEntry.instance:IsA("Instance") then
+	if not prompt and typeof(targetEntry.instance) == "Instance" then
 		prompt = EggData.getPrompt(targetEntry.instance)
 	end
 
-	if prompt and prompt:IsA("ProximityPrompt") then
+	if prompt and typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") then
 		if fireproximityprompt then
 			pcall(fireproximityprompt, prompt, 0, true)
 		end
