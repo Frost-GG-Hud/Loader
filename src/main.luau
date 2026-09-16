@@ -51,6 +51,7 @@ local function buildHub()
 
 	-- 3. Mount Automation Features (Auto Steal, Speed, Treadmill, Anti-Knockback, God Mode)
 	StealAnEgg(window, {
+		mainTab = mainTab,
 		autoTab = autoTab,
 		espTab = mainTab,
 		defenseTab = autoTab,
@@ -60,74 +61,12 @@ local function buildHub()
 	-- 4. Mount Universal Features (Speed, Jump, Visuals, Server)
 	Universal(window, miscTab, cleanup)
 
-	-- 5. Populate Main Tab (Dashboard & Profile)
-	mainTab:AddSection("Roblox User Profile")
-	local profileCardY = mainTab:nextSlot(68, 8)
-	local profileCard = Builder.frame({
-		Name = "ProfileCard",
-		Size = UDim2.new(1, -12, 0, 68),
-		Position = UDim2.fromOffset(6, profileCardY),
-		BackgroundColor3 = Theme.Card,
-		Parent = mainTab._page,
-	})
-	Builder.corner(profileCard, Theme.Metrics.CornerCard)
-	Builder.stroke(profileCard, {
-		Color = Theme.Border,
-		Thickness = 1,
-		Transparency = 0.4,
-	})
-
-	local avatarImg = Builder.imageLabel({
-		Name = "Avatar",
-		Size = UDim2.fromOffset(50, 50),
-		Position = UDim2.fromOffset(9, 9),
-		Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(LocalPlayer.UserId) .. "&w=150&h=150",
-		Parent = profileCard,
-	})
-	Builder.corner(avatarImg, 8)
-	Builder.stroke(avatarImg, {
-		Color = Theme.Accent,
-		Thickness = 1,
-		Transparency = 0.3,
-	})
-
-	Builder.label({
-		Name = "DisplayName",
-		Size = UDim2.new(1, -74, 0, 18),
-		Position = UDim2.fromOffset(68, 8),
-		Font = Theme.FontBold,
-		TextSize = 13,
-		Text = LocalPlayer.DisplayName,
-		TextColor3 = Theme.TextMain,
-		Parent = profileCard,
-	})
-
-	Builder.label({
-		Name = "Username",
-		Size = UDim2.new(1, -74, 0, 14),
-		Position = UDim2.fromOffset(68, 26),
-		Font = Theme.FontRegular,
-		TextSize = 11,
-		Text = "@" .. LocalPlayer.Name .. "  •  ID: " .. tostring(LocalPlayer.UserId),
-		TextColor3 = Theme.TextDim,
-		Parent = profileCard,
-	})
-
-	Builder.label({
-		Name = "AccountAge",
-		Size = UDim2.new(1, -74, 0, 14),
-		Position = UDim2.fromOffset(68, 44),
-		Font = Theme.FontRegular,
-		TextSize = 10,
-		Text = "Account Age: " .. tostring(LocalPlayer.AccountAge) .. " days  •  Place ID: " .. tostring(game.PlaceId),
-		TextColor3 = Theme.Accent,
-		Parent = profileCard,
-	})
-
-	mainTab:AddSection("Quick Shortcuts & Info")
+	-- 5. Quick Shortcuts & User Session Info on Main Tab
+	mainTab:AddSection("ℹ️ Hub Information & Keybinds")
 	mainTab:AddLabel("• Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating 🥚 icon to hide/show.", false)
 	mainTab:AddLabel("• Top bar displays live FPS, Network Ping, and Version.", false)
 	mainTab:AddLabel("• Check the ➕ Predictor tab for live Egg predictions and stats.", false)
+	mainTab:AddLabel("• Connected as: @" .. LocalPlayer.Name .. "  •  Age: " .. tostring(LocalPlayer.AccountAge) .. " days", false)
 
 	-- 6. Populate Events Tab
 	eventsTab:AddSection("Event Egg Predictor & Trackers")
@@ -139,8 +78,8 @@ local function buildHub()
 		window:notify("High-tier alerts: " .. (on and "Enabled" or "Disabled"), "info")
 	end)
 
-	-- Default to Predictor tab matching the user's reference image
-	window:select("Predictor")
+	-- Default to Main tab so all buttons and scripts are immediately visible on launch
+	window:select("Main")
 	window:notify("Frost Steal a Egg V4.6 Loaded!", "success")
 
 	return window
