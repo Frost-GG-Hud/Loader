@@ -243,7 +243,7 @@ function Window:_buildBody()
 
 	self.content = Builder.frame({
 		Name = "Content",
-		Size = UDim2.new(1, -(M.ContentInset + 12), 1, -(M.ContentTop + 12)),
+		Size = UDim2.new(1, -(M.ContentInset + 12), 1, -(M.ContentTop + 26)),
 		Position = UDim2.fromOffset(M.ContentInset, M.ContentTop),
 		BackgroundTransparency = 1,
 		ZIndex = 5,
@@ -257,23 +257,37 @@ function Window:_buildBody()
 		ZIndex = 1,
 		Parent = self.content,
 	})
-	Builder.corner(panel, 12)
+	Builder.corner(panel, 10)
 	Builder.stroke(panel, {
 		Color = Theme.Border,
 		Thickness = 1,
-		Transparency = 0.6,
+		Transparency = 0.5,
+	})
+
+	-- Bottom Footer
+	Builder.label({
+		Name = "FooterTitle",
+		Size = UDim2.new(1, 0, 0, 16),
+		Position = UDim2.new(0, 0, 1, -20),
+		Font = Theme.FontRegular,
+		TextSize = 10,
+		Text = "Ajjans Steel a Egg V4.6",
+		TextColor3 = Theme.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 6,
+		Parent = self.window,
 	})
 end
 
 function Window:_buildFloatingToggle()
 	local floatBtn = Builder.new("TextButton", {
 		Name = "FloatingToggle",
-		Size = UDim2.fromOffset(44, 44),
+		Size = UDim2.fromOffset(40, 40),
 		Position = UDim2.new(0, 16, 0.45, 0),
 		BackgroundColor3 = Theme.Window,
 		BackgroundTransparency = 0.15,
-		Text = "❄️",
-		TextSize = 20,
+		Text = "🥚",
+		TextSize = 18,
 		Font = Theme.FontBold,
 		TextColor3 = Theme.White,
 		AutoButtonColor = false,
