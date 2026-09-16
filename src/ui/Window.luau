@@ -86,17 +86,8 @@ function Window.new(opts)
 end
 
 function Window:_buildShadow()
-	self.shadow = Builder.imageLabel({
-		Name = "Shadow",
-		Image = "rbxassetid://131604521",
-		ImageColor3 = Color3.new(0, 0, 0),
-		ImageTransparency = 0.72,
-		ScaleType = Enum.ScaleType.Slice,
-		SliceCenter = Rect.new(10, 10, 118, 118),
-		Size = UDim2.fromOffset(100, 100),
-		ZIndex = 3,
-		Parent = self.screenGui,
-	})
+	-- Blur drop shadow removed for a crisp, clean outline
+	self.shadow = nil
 end
 
 function Window:_buildWindow(width, height)
@@ -114,9 +105,9 @@ function Window:_buildWindow(width, height)
 	})
 	Builder.corner(self.window, M.CornerWindow)
 	Builder.stroke(self.window, {
-		Color = Color3.fromRGB(120, 130, 138),
-		Thickness = 1.2,
-		Transparency = 0.25,
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.4,
 	})
 end
 function Window:_buildHeader(opts)
@@ -245,20 +236,13 @@ function Window:_buildBody()
 		Name = "Content",
 		Size = UDim2.new(1, -(M.ContentInset + 12), 1, -(M.ContentTop + 26)),
 		Position = UDim2.fromOffset(M.ContentInset, M.ContentTop),
-		BackgroundTransparency = 1,
+		BackgroundColor3 = Theme.Surface,
+		ClipsDescendants = false,
 		ZIndex = 5,
 		Parent = self.window,
 	})
-
-	local panel = Builder.frame({
-		Name = "Panel",
-		Size = UDim2.new(1, 0, 1, 0),
-		BackgroundColor3 = Theme.Surface,
-		ZIndex = 1,
-		Parent = self.content,
-	})
-	Builder.corner(panel, 10)
-	Builder.stroke(panel, {
+	Builder.corner(self.content, 10)
+	Builder.stroke(self.content, {
 		Color = Theme.Border,
 		Thickness = 1,
 		Transparency = 0.5,
