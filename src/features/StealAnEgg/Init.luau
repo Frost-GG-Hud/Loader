@@ -156,9 +156,9 @@ return function(hub, tabs, cleanup)
 		end
 	)
 
-	mainTab:AddSlider("Tween / Glide Speed (studs/s)", 15, 150, 45, function(value)
+	mainTab:AddSlider("Tween / Glide Speed (studs/s)", 20, 350, 110, function(value)
 		movement:setTweenSpeed(value)
-	end, 1)
+	end, 5)
 
 	mainTab:AddSlider("Flight / Elevation Offset (studs)", 0, 60, 0, function(value)
 		movement:setElevation(value)
@@ -261,9 +261,9 @@ return function(hub, tabs, cleanup)
 			end
 		)
 
-		autoTab:AddSlider("Tween / Glide Speed (studs/s)", 15, 150, 45, function(value)
+		autoTab:AddSlider("Tween / Glide Speed (studs/s)", 20, 350, 110, function(value)
 			movement:setTweenSpeed(value)
-		end, 1)
+		end, 5)
 
 		autoTab:AddSlider("Flight / Elevation Offset (studs)", 0, 60, 0, function(value)
 			movement:setElevation(value)
