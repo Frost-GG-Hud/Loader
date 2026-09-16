@@ -271,7 +271,7 @@ function Window:_buildBody()
 		Position = UDim2.new(0, 0, 1, -20),
 		Font = Theme.FontRegular,
 		TextSize = 10,
-		Text = "Ajjans Steel a Egg V4.6",
+		Text = "Frost Steel a Egg V4.6",
 		TextColor3 = Theme.TextMuted,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 6,
