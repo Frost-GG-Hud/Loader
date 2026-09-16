@@ -154,6 +154,8 @@ return function(tab, labelText, options, defaultSelected, onSelect, isMulti)
 		return math.clamp(COLLAPSED_HEIGHT + totalOptionsHeight + 6, COLLAPSED_HEIGHT, MAX_EXPANDED_HEIGHT)
 	end
 
+	local toggleOpen = nil
+
 	local function renderOptions()
 		for _, child in ipairs(listFrame:GetChildren()) do
 			if child:IsA("GuiButton") then
@@ -232,8 +234,8 @@ return function(tab, labelText, options, defaultSelected, onSelect, isMulti)
 					updateDisplay()
 					renderOptions()
 					-- Collapse on single selection
-					if isOpen then
-						topBar.MouseButton1Click:Fire()
+					if isOpen and toggleOpen then
+						toggleOpen()
 					end
 					if onSelect then
 						pcall(onSelect, selected)
@@ -246,7 +248,7 @@ return function(tab, labelText, options, defaultSelected, onSelect, isMulti)
 		listFrame.CanvasSize = UDim2.new(0, 0, 0, contentH)
 	end
 
-	local function toggleOpen()
+	toggleOpen = function()
 		isOpen = not isOpen
 		arrowLabel.Text = isOpen and "▲" or "▼"
 		arrowLabel.TextColor3 = isOpen and accent or Theme.TextDim
