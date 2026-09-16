@@ -194,8 +194,9 @@ function Movement:toggleSpeedBypass(enabled)
 	if self.speedBypassRunning then
 		self:neutralizeAntiCheat()
 		local hum, root = self:_context()
+		local safeWalk = math.min(self.customSpeed, 38)
 		if hum then
-			hum.WalkSpeed = self.customSpeed
+			hum.WalkSpeed = safeWalk
 		end
 		self.notify(string.format("Speed Bypass active (Speed: %d)", self.customSpeed), "success")
 
@@ -210,16 +211,19 @@ function Movement:toggleSpeedBypass(enabled)
 					return
 				end
 
-				if currentHum.WalkSpeed ~= self.customSpeed then
-					currentHum.WalkSpeed = self.customSpeed
+				-- Maintain safe humanoid walkspeed (up to 38 studs/s never rubberbands)
+				local targetSafe = math.min(self.customSpeed, 38)
+				if currentHum.WalkSpeed ~= targetSafe then
+					currentHum.WalkSpeed = targetSafe
 				end
 
 				if not self.autoFarmAllRunning and not self.autoFarmBestRunning then
 					local moveDir = currentHum.MoveDirection
-					if moveDir.Magnitude > 0 then
-						local speed = self.customSpeed
-						local velY = currentRoot.AssemblyLinearVelocity.Y
-						currentRoot.AssemblyLinearVelocity = Vector3.new(moveDir.X * speed, velY, moveDir.Z * speed)
+					if moveDir.Magnitude > 0 and self.customSpeed > 38 then
+						-- Smooth CFrame micro-stepping for higher speeds without triggering physics velocity flags
+						local extraSpeed = self.customSpeed - 38
+						local step = moveDir * (extraSpeed * dt)
+						currentRoot.CFrame = currentRoot.CFrame + step
 					end
 				end
 			end)
@@ -518,11 +522,17 @@ function Movement:safeWalkTo(targetPos, timeoutSeconds)
 		-- Steer humanoid directly toward current waypoint / target
 		curHum:MoveTo(currentGoal)
 
-		-- Apply linear velocity boost in goal direction
+		-- Smooth pathing without physics velocity spikes that cause rubberband
+		local safeSpeed = math.min(speed, 38)
+		if curHum.WalkSpeed ~= safeSpeed then
+			curHum.WalkSpeed = safeSpeed
+		end
+
 		local goalDelta = (Vector3.new(currentGoal.X, 0, currentGoal.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z))
-		if speed > 20 and goalDelta.Magnitude > 2 then
-			local velY = curRoot.AssemblyLinearVelocity.Y
-			curRoot.AssemblyLinearVelocity = Vector3.new(goalDelta.Unit.X * speed, velY, goalDelta.Unit.Z * speed)
+		if speed > 38 and goalDelta.Magnitude > 2 then
+			local extraSpeed = speed - 38
+			local step = goalDelta.Unit * math.min(extraSpeed * 0.15, 3.5)
+			curRoot.CFrame = curRoot.CFrame + step
 		end
 
 		-- Wall-hit & Stuck Detection
@@ -1113,7 +1123,30 @@ function Movement:toggleAntiGuardHit(enabled)
 	-- Automatically engage anti-ragdoll and anti-knockback
 	self:toggleAntiRagdoll(true)
 	self:toggleAntiKnockback(true)
-	self.notify("Anti Hit Guard active — forcefield, no-touch & immune to drops", "success")
+	self.notify("Anti Hit Guard active — fast guards blocked & frozen", "success")
+
+	-- Initial proactive freeze on all existing guards
+	pcall(function()
+		local obj = workspace:FindFirstChild("__OBJECTS")
+		local areas = obj and obj:FindFirstChild("Areas")
+		local guardAreas = areas and areas:FindFirstChild("GuardAreas")
+		if guardAreas then
+			for _, d in ipairs(guardAreas:GetDescendants()) do
+				if d:IsA("Model") and (d.Name == "Guard" or string.find(string.lower(d.Name), "guard", 1, true)) then
+					local gHum = d:FindFirstChildOfClass("Humanoid")
+					if gHum then gHum.WalkSpeed = 0 end
+					local gRoot = d:FindFirstChild("HumanoidRootPart") or d:FindFirstChildWhichIsA("BasePart")
+					if gRoot then gRoot.Anchored = true end
+					for _, p in ipairs(d:GetDescendants()) do
+						if p:IsA("BasePart") then
+							p.CanTouch = false
+							p.CanCollide = false
+						end
+					end
+				end
+			end
+		end
+	end)
 
 	if not self.connections.antiGuardStepped then
 		self.connections.antiGuardStepped = RunService.Stepped:Connect(function()
@@ -1127,7 +1160,7 @@ function Movement:toggleAntiGuardHit(enabled)
 			-- Keep player immune to stun / ragdoll
 			hum.PlatformStand = false
 
-			-- Helper to neutralize a guard model
+			-- Helper to completely neutralize any guard model
 			local function neutralizeGuard(guard)
 				if not guard or not guard:IsA("Model") or guard == char then return end
 
@@ -1136,17 +1169,25 @@ function Movement:toggleAntiGuardHit(enabled)
 					local diff = (guardRoot.Position - playerRoot.Position)
 					local dist = diff.Magnitude
 
-					-- Active Repulsion Field: if guard gets within 28 studs, repel them away!
-					if dist < 28 then
+					-- Active Repulsion Field: if any fast guard enters within 45 studs, blast them 80 studs away and underground
+					if dist < 45 then
 						local pushDir = Vector3.new(diff.X, 0, diff.Z)
-						if pushDir.Magnitude > 0.05 then
+						if pushDir.Magnitude > 0.01 then
 							pushDir = pushDir.Unit
-							pcall(function()
-								guardRoot.AssemblyLinearVelocity = pushDir * 70 + Vector3.new(0, 10, 0)
-								guardRoot.CFrame = guardRoot.CFrame + pushDir * 3
-							end)
+						else
+							pushDir = Vector3.new(0, 0, 1)
 						end
+						pcall(function()
+							guard:PivotTo(CFrame.new(playerRoot.Position + pushDir * 80 - Vector3.new(0, 35, 0)))
+							guardRoot.Anchored = true
+						end)
 					end
+				end
+
+				-- Stop guard movement
+				local gHum = guard:FindFirstChildOfClass("Humanoid")
+				if gHum and gHum.WalkSpeed > 0 then
+					gHum.WalkSpeed = 0
 				end
 
 				-- Disable touch and collision on all guard parts (weapons, bats, limbs)
@@ -1158,22 +1199,20 @@ function Movement:toggleAntiGuardHit(enabled)
 				end
 			end
 
-			-- 1. Targeted check in workspace.__OBJECTS.Areas.GuardAreas
+			-- 1. Targeted deep search across all GuardAreas (covers Light Dark, Cosmic, Lake, Forest, Desert, etc.)
 			local obj = workspace:FindFirstChild("__OBJECTS")
 			local areas = obj and obj:FindFirstChild("Areas")
 			local guardAreas = areas and areas:FindFirstChild("GuardAreas")
 			if guardAreas then
-				for _, area in ipairs(guardAreas:GetChildren()) do
-					for _, desc in ipairs(area:GetChildren()) do
-						if desc:IsA("Model") and (desc.Name == "Guard" or string.find(string.lower(desc.Name), "guard", 1, true)) then
-							neutralizeGuard(desc)
-						end
+				for _, desc in ipairs(guardAreas:GetDescendants()) do
+					if desc:IsA("Model") and (desc.Name == "Guard" or string.find(string.lower(desc.Name), "guard", 1, true)) then
+						neutralizeGuard(desc)
 					end
 				end
 			end
 
 			-- 2. General workspace check for any Guard models
-			for _, m in ipairs(workspace:GetChildren()) do
+			for _, m in ipairs(workspace:GetDescendants()) do
 				if m:IsA("Model") and (m.Name == "Guard" or string.find(string.lower(m.Name), "guard", 1, true)) and m ~= char then
 					neutralizeGuard(m)
 				end
