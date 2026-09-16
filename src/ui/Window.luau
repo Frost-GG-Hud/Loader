@@ -100,7 +100,7 @@ function Window:_buildWindow(width, height)
 			math.max(16, (viewport.Y - height) / 2)
 		),
 		BackgroundColor3 = Theme.Window,
-		ZIndex = 4,
+		ZIndex = 1,
 		Parent = self.screenGui,
 	})
 	Builder.corner(self.window, M.CornerWindow)
@@ -238,7 +238,7 @@ function Window:_buildBody()
 		Position = UDim2.fromOffset(M.ContentInset, M.ContentTop),
 		BackgroundColor3 = Theme.Surface,
 		ClipsDescendants = false,
-		ZIndex = 5,
+		ZIndex = 2,
 		Parent = self.window,
 	})
 	Builder.corner(self.content, 10)
