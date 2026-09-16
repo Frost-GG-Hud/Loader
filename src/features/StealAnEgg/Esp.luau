@@ -94,8 +94,10 @@ function Esp:_tickEggs()
 				end)
 			end
 
-			local targetModel = entry.model or (entry.instance:IsA("Instance") and entry.instance)
-			if targetModel and targetModel:IsA("Instance") and targetModel.Parent then
+			local targetModel = (typeof(entry.model) == "Instance" and entry.model)
+				or (typeof(entry.instance) == "Instance" and entry.instance)
+				or nil
+			if targetModel and targetModel.Parent then
 				local highlight = Instance.new("Highlight")
 				highlight.Name = EGG_ESP_NAME
 				highlight.FillColor = entry.rarityColor
