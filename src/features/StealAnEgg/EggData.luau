@@ -117,28 +117,34 @@ function EggData.isIgnoredPart(name)
 end
 
 function EggData.worldPositionOf(instance)
-	if not instance or not instance.Parent then
+	if not instance or typeof(instance) ~= "Instance" then
 		return nil
 	end
-	if instance:IsA("BasePart") then
-		return instance.Position
-	end
-	if instance:IsA("Model") then
-		local eggPoint = instance:FindFirstChild("EggPoint", true)
-		if eggPoint and eggPoint:IsA("BasePart") then
-			return eggPoint.Position
+	local ok, pos = pcall(function()
+		if not instance.Parent then
+			return nil
 		end
-		if instance.PrimaryPart then
-			return instance.PrimaryPart.Position
+		if instance:IsA("BasePart") then
+			return instance.Position
 		end
-		local ok, pivot = pcall(function()
-			return instance:GetPivot()
-		end)
-		if ok and pivot then
-			return pivot.Position
+		if instance:IsA("Model") then
+			local eggPoint = instance:FindFirstChild("EggPoint", true)
+			if eggPoint and eggPoint:IsA("BasePart") then
+				return eggPoint.Position
+			end
+			if instance.PrimaryPart then
+				return instance.PrimaryPart.Position
+			end
+			local okPivot, pivot = pcall(function()
+				return instance:GetPivot()
+			end)
+			if okPivot and pivot then
+				return pivot.Position
+			end
 		end
-	end
-	return nil
+		return nil
+	end)
+	return ok and pos or nil
 end
 
 -- Resolves the clean Egg Name, Pet Name, and true Money Per Second of the hatching pet
@@ -234,17 +240,20 @@ function EggData.resolveEggMetadata(category, uid, instance)
 end
 
 function EggData.getPrompt(instance)
-	if not instance then return nil end
-	local prompt = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
-	if prompt and prompt.ActionText == "Steal" then
-		return prompt
-	end
-	if prompt then return prompt end
+	if not instance or typeof(instance) ~= "Instance" then return nil end
+	local ok, prompt = pcall(function()
+		local p = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if p and p.ActionText == "Steal" then
+			return p
+		end
+		if p then return p end
 
-	if instance.Parent and instance.Parent ~= workspace then
-		prompt = instance.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
-	end
-	return prompt
+		if instance.Parent and instance.Parent ~= workspace then
+			p = instance.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
+		end
+		return p
+	end)
+	return ok and prompt or nil
 end
 
 function EggData.scan(force)
@@ -351,36 +360,51 @@ function EggData.scan(force)
 	end
 
 	-- Method 3: Fallback scan for ProximityPrompts with ActionText == "Steal"
-	for _, desc in ipairs(workspace:GetDescendants()) do
-		if desc:IsA("ProximityPrompt") and (desc.Name == "CarryAreaEgg" or desc.ActionText == "Steal") then
-			local model = desc.Parent
-			while model and model ~= workspace and not model:IsA("Model") do
-				model = model.Parent
-			end
+	pcall(function()
+		for _, desc in ipairs(workspace:GetDescendants()) do
+			local okPrompt, isPrompt = pcall(function()
+				return typeof(desc) == "Instance" and desc:IsA("ProximityPrompt") and (desc.Name == "CarryAreaEgg" or desc.ActionText == "Steal")
+			end)
+			if okPrompt and isPrompt then
+				local model = nil
+				pcall(function() model = desc.Parent end)
+				while model and model ~= workspace do
+					local okIsModel, isModel = pcall(function() return model:IsA("Model") end)
+					if okIsModel and isModel then break end
+					pcall(function() model = model.Parent end)
+				end
 
-			if model and model ~= workspace and not seenInstances[model] and not EggData.isIgnoredPart(model.Name) then
-				seenInstances[model] = true
-				local worldPos = EggData.worldPositionOf(model) or (desc.Parent:IsA("BasePart") and desc.Parent.Position)
-				if worldPos then
-					local meta = EggData.resolveEggMetadata(nil, model.Name, model)
-					table.insert(results, {
-						uid = model.Name,
-						instance = model,
-						model = model,
-						position = worldPos,
-						petName = meta.petName,
-						eggName = meta.eggName,
-						cleanDisplay = meta.cleanDisplay,
-						rarity = meta.rarity,
-						rarityColor = meta.rarityColor,
-						moneyPerSec = meta.moneyPerSec,
-						moneyText = meta.moneyText,
-						prompt = desc,
-					})
+				if model and model ~= workspace and not seenInstances[model] and not EggData.isIgnoredPart(model.Name) then
+					seenInstances[model] = true
+					local worldPos = EggData.worldPositionOf(model)
+					if not worldPos then
+						pcall(function()
+							if desc.Parent and typeof(desc.Parent) == "Instance" and desc.Parent:IsA("BasePart") then
+								worldPos = desc.Parent.Position
+							end
+						end)
+					end
+					if worldPos then
+						local meta = EggData.resolveEggMetadata(nil, model.Name, model)
+						table.insert(results, {
+							uid = model.Name,
+							instance = model,
+							model = model,
+							position = worldPos,
+							petName = meta.petName,
+							eggName = meta.eggName,
+							cleanDisplay = meta.cleanDisplay,
+							rarity = meta.rarity,
+							rarityColor = meta.rarityColor,
+							moneyPerSec = meta.moneyPerSec,
+							moneyText = meta.moneyText,
+							prompt = desc,
+						})
+					end
 				end
 			end
 		end
-	end
+	end)
 
 	cache.entries = results
 	cache.stampedAt = now
@@ -388,26 +412,27 @@ function EggData.scan(force)
 end
 
 function EggData.invalidate()
-	cache.entries = {}
 	cache.stampedAt = -math.huge
+	table.clear(cache.entries)
 end
 
 function EggData.nearby(radius, minMoney, force)
-	local root = Util.getRootPart()
+	local results = {}
+	local _, root = Util.getCharacter()
 	if not root then
-		return {}
+		return results
 	end
 
-	minMoney = tonumber(minMoney) or 0
-	local entries = EggData.scan(force)
-	local results = {}
+	local origin = root.Position
+	local maxDist = radius or 80
+	local minVal = minMoney or 0
 
-	for _, entry in ipairs(entries) do
-		local dist = (entry.position - root.Position).Magnitude
-		if (radius == nil or dist <= radius) and entry.moneyPerSec >= minMoney then
-			local item = table.clone(entry)
-			item.distance = dist
-			table.insert(results, item)
+	for _, entry in ipairs(EggData.scan(force)) do
+		local dist = (entry.position - origin).Magnitude
+		if dist <= maxDist and (entry.moneyPerSec or 0) >= minVal then
+			local cloned = table.clone(entry)
+			cloned.distance = dist
+			table.insert(results, cloned)
 		end
 	end
 
@@ -419,40 +444,43 @@ function EggData.nearby(radius, minMoney, force)
 end
 
 function EggData.closest(radius, minMoney)
-	local list = EggData.nearby(radius, minMoney)
-	return list[1]
+	local all = EggData.nearby(radius, minMoney, false)
+	return all[1]
 end
 
--- Best egg: highest money per second (filtered by minMoney)
 function EggData.bestValue(minMoney)
-	minMoney = tonumber(minMoney) or 0
-	local all = EggData.nearby(nil, minMoney)
-	if #all == 0 then
-		return nil
+	local all = EggData.scan(false)
+	local minVal = minMoney or 0
+	local filtered = {}
+
+	for _, entry in ipairs(all) do
+		if (entry.moneyPerSec or 0) >= minVal then
+			table.insert(filtered, entry)
+		end
 	end
 
-	table.sort(all, function(a, b)
-		if a.moneyPerSec ~= b.moneyPerSec then
-			return a.moneyPerSec > b.moneyPerSec
-		end
-		return a.distance < b.distance
+	table.sort(filtered, function(a, b)
+		return (a.moneyPerSec or 0) > (b.moneyPerSec or 0)
 	end)
 
 	return all[1]
 end
 
 function EggData.describe(instance)
-	local attributes = instance:GetAttributes()
+	if not instance or typeof(instance) ~= "Instance" then
+		return "Not an Instance", ""
+	end
 	local parts = {}
-	for key, value in pairs(attributes) do
-		table.insert(parts, key .. "=" .. tostring(value))
-	end
-
 	local children = {}
-	for _, child in ipairs(instance:GetChildren()) do
-		table.insert(children, child.ClassName .. ":" .. child.Name)
-	end
-
+	pcall(function()
+		local attributes = instance:GetAttributes()
+		for key, value in pairs(attributes) do
+			table.insert(parts, key .. "=" .. tostring(value))
+		end
+		for _, child in ipairs(instance:GetChildren()) do
+			table.insert(children, child.ClassName .. ":" .. child.Name)
+		end
+	end)
 	return table.concat(parts, ", "), table.concat(children, ", ")
 end
 
