@@ -79,7 +79,7 @@ function Movement.new(config)
 		speedBypassRunning = false,
 		webhookEnabled = false,
 		webhookUrl = "",
-		customSpeed = 60,
+		customSpeed = 28,
 		minMoneyPerSec = 0,
 		rememberedBasePos = nil,
 		busy = false,
@@ -1169,8 +1169,8 @@ function Movement:toggleAntiGuardHit(enabled)
 					local diff = (guardRoot.Position - playerRoot.Position)
 					local dist = diff.Magnitude
 
-					-- Active Repulsion Field: if any fast guard enters within 45 studs, blast them 80 studs away and underground
-					if dist < 45 then
+					-- Active Repulsion Field: if any fast guard enters within 35 studs, push them away horizontally along ground level (NO dropping underground!)
+					if dist < 35 then
 						local pushDir = Vector3.new(diff.X, 0, diff.Z)
 						if pushDir.Magnitude > 0.01 then
 							pushDir = pushDir.Unit
@@ -1178,16 +1178,21 @@ function Movement:toggleAntiGuardHit(enabled)
 							pushDir = Vector3.new(0, 0, 1)
 						end
 						pcall(function()
-							guard:PivotTo(CFrame.new(playerRoot.Position + pushDir * 80 - Vector3.new(0, 35, 0)))
+							-- Keep natural Y coordinate so GuardMovementRecovery never triggers
+							local groundY = guardRoot.Position.Y
+							guard:PivotTo(CFrame.new(playerRoot.Position.X + pushDir.X * 50, groundY, playerRoot.Position.Z + pushDir.Z * 50))
 							guardRoot.Anchored = true
 						end)
 					end
 				end
 
-				-- Stop guard movement
+				-- Freeze humanoid and set PlatformStand so guard goes limp and cannot attack
 				local gHum = guard:FindFirstChildOfClass("Humanoid")
-				if gHum and gHum.WalkSpeed > 0 then
-					gHum.WalkSpeed = 0
+				if gHum then
+					if gHum.WalkSpeed > 0 then
+						gHum.WalkSpeed = 0
+					end
+					gHum.PlatformStand = true
 				end
 
 				-- Disable touch and collision on all guard parts (weapons, bats, limbs)
