@@ -33,8 +33,8 @@ return function(tab)
 		return ButtonWidget(self, text, callback, danger)
 	end
 
-	function tab:AddToggle(text, default, onChange)
-		return ToggleWidget(self, text, default, onChange)
+	function tab:AddToggle(text, ...)
+		return ToggleWidget(self, text, ...)
 	end
 
 	function tab:AddSlider(text, min, max, default, onChange, step)
