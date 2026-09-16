@@ -39,6 +39,12 @@ function Tab.new(config)
 		Parent = config.buttonParent,
 	})
 	Builder.corner(self._btn, 7)
+	local stroke = Builder.stroke(self._btn, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.8,
+	})
+	self._stroke = stroke
 
 	local indicator = Builder.frame({
 		Name = "ActiveIndicator",
@@ -90,11 +96,16 @@ end
 
 function Tab:setActive(active)
 	self._page.Visible = active
-	self._btn.BackgroundColor3 = active and Theme.CardHover or Theme.SurfaceAlt
-	self._btn.TextColor3 = active and Theme.TextMain or Theme.TextDim
+	self._btn.BackgroundColor3 = active and Theme.Card or Color3.fromRGB(0, 0, 0)
+	self._btn.BackgroundTransparency = active and 0 or 1
+	self._btn.TextColor3 = active and Theme.Accent or Theme.TextDim
 	self._btn.Font = active and Theme.FontBold or Theme.FontMedium
 	if self._indicator then
 		self._indicator.Visible = active
+	end
+	if self._stroke then
+		self._stroke.Color = active and Theme.Accent or Theme.Border
+		self._stroke.Transparency = active and 0.25 or 0.8
 	end
 end
 
