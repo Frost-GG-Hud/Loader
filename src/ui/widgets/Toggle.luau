@@ -25,30 +25,73 @@ local function knobPosition(on)
 	return UDim2.fromOffset(x, KNOB_INSET)
 end
 
-return function(tab, text, default, onChange)
+return function(tab, text, arg2, arg3, arg4)
+	local desc = nil
+	local default = false
+	local onChange = nil
+
+	if type(arg2) == "string" then
+		desc = arg2
+		default = arg3 == true
+		onChange = arg4
+	else
+		default = arg2 == true
+		onChange = arg3
+	end
+
 	local accent = tab._accent
-	local y = tab:nextSlot(HEIGHT, GAP)
+	local cardHeight = desc and 46 or HEIGHT
+	local y = tab:nextSlot(cardHeight, GAP)
 	local value = default == true
 
 	local card = Builder.frame({
 		Name = "ToggleRow",
-		Size = UDim2.new(1, -12, 0, HEIGHT),
+		Size = UDim2.new(1, -12, 0, cardHeight),
 		Position = UDim2.fromOffset(6, y),
 		BackgroundColor3 = Theme.Card,
 		Parent = tab._page,
 	})
 	Builder.corner(card, Theme.Metrics.CornerCard)
-
-	Builder.label({
-		Size = UDim2.new(1, -(TRACK_WIDTH + TRACK_RIGHT_OFFSET + 24), 1, 0),
-		Position = UDim2.fromOffset(12, 0),
-		Font = Theme.FontRegular,
-		TextSize = 13,
-		Text = tostring(text),
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		TextColor3 = Theme.TextMain,
-		Parent = card,
+	Builder.stroke(card, {
+		Color = Theme.Border,
+		Thickness = 1,
+		Transparency = 0.5,
 	})
+
+	if desc then
+		Builder.label({
+			Size = UDim2.new(1, -(TRACK_WIDTH + TRACK_RIGHT_OFFSET + 24), 0, 18),
+			Position = UDim2.fromOffset(12, 5),
+			Font = Theme.FontMedium,
+			TextSize = 12,
+			Text = tostring(text),
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = Theme.TextMain,
+			Parent = card,
+		})
+
+		Builder.label({
+			Size = UDim2.new(1, -(TRACK_WIDTH + TRACK_RIGHT_OFFSET + 24), 0, 14),
+			Position = UDim2.fromOffset(12, 23),
+			Font = Theme.FontRegular,
+			TextSize = 9,
+			Text = tostring(desc),
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = Theme.TextDim,
+			Parent = card,
+		})
+	else
+		Builder.label({
+			Size = UDim2.new(1, -(TRACK_WIDTH + TRACK_RIGHT_OFFSET + 24), 1, 0),
+			Position = UDim2.fromOffset(12, 0),
+			Font = Theme.FontRegular,
+			TextSize = 13,
+			Text = tostring(text),
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = Theme.TextMain,
+			Parent = card,
+		})
+	end
 
 	local track = Builder.frame({
 		Name = "Switch",
