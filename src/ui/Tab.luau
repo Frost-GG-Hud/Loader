@@ -128,8 +128,7 @@ function Tab.new(config)
 		ScrollBarImageColor3 = Theme.SurfaceAlt,
 		ScrollBarImageTransparency = 0.2,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
-		CanvasSize = UDim2.new(1, 0, 0, BOTTOM_PADDING),
-		AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y,
+		CanvasSize = UDim2.new(0, 0, 0, BOTTOM_PADDING),
 		Visible = false,
 		ClipsDescendants = true,
 		ZIndex = 5,
@@ -182,7 +181,7 @@ function Tab:nextSlot(height, gap)
 	self._y = self._y + (gap or 8)
 	local y = self._y
 	self._y = self._y + height
-	self._page.CanvasSize = UDim2.new(1, 0, 0, self._y + BOTTOM_PADDING)
+	self._page.CanvasSize = UDim2.new(0, 0, 0, self._y + BOTTOM_PADDING)
 	return y
 end
 
@@ -235,7 +234,7 @@ function Tab:relayout()
 		end
 	end
 	self._y = y
-	self._page.CanvasSize = UDim2.new(1, 0, 0, y + BOTTOM_PADDING)
+	self._page.CanvasSize = UDim2.new(0, 0, 0, y + BOTTOM_PADDING)
 end
 
 function Tab:filter(query)
@@ -258,7 +257,7 @@ function Tab:Clear()
 	self._widgets = {}
 	Util.clearChildren(self._page)
 	self._y = 4
-	self._page.CanvasSize = UDim2.new(1, 0, 0, BOTTOM_PADDING)
+	self._page.CanvasSize = UDim2.new(0, 0, 0, BOTTOM_PADDING)
 	self._page.CanvasPosition = Vector2.zero
 end
 
