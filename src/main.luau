@@ -46,27 +46,42 @@ local function buildHub()
 	local predictorTab = window:addTab("Predictor", "rbxassetid://7734058499")
 	local miscTab = window:addTab("Misc", "rbxassetid://7734053426")
 
-	-- 2. Mount Egg Predictor (Screenshot feature)
-	EggPredictorTab(predictorTab, cleanup)
+	-- 2. Mount StealAnEgg features onto Main, Automation, and Misc tabs FIRST
+	local okSteal, errSteal = pcall(function()
+		StealAnEgg(window, {
+			mainTab = mainTab,
+			autoTab = autoTab,
+			espTab = mainTab,
+			defenseTab = autoTab,
+			webhookTab = miscTab,
+		}, cleanup)
+	end)
+	if not okSteal then
+		warn("[Frost] Error mounting StealAnEgg:", tostring(errSteal))
+	end
 
-	-- 3. Mount Automation Features (Auto Steal, Speed, Treadmill, Anti-Knockback, God Mode)
-	StealAnEgg(window, {
-		mainTab = mainTab,
-		autoTab = autoTab,
-		espTab = mainTab,
-		defenseTab = autoTab,
-		webhookTab = miscTab,
-	}, cleanup)
-
-	-- 4. Mount Universal Features (Speed, Jump, Visuals, Server)
-	Universal(window, miscTab, cleanup)
-
-	-- 5. Quick Shortcuts & User Session Info on Main Tab
+	-- 3. Quick Shortcuts & User Session Info on Main Tab
 	mainTab:AddSection("ℹ️ Hub Information & Keybinds")
 	mainTab:AddLabel("• Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating 🥚 icon to hide/show.", false)
 	mainTab:AddLabel("• Top bar displays live FPS, Network Ping, and Version.", false)
 	mainTab:AddLabel("• Check the ➕ Predictor tab for live Egg predictions and stats.", false)
 	mainTab:AddLabel("• Connected as: @" .. LocalPlayer.Name .. "  •  Age: " .. tostring(LocalPlayer.AccountAge) .. " days", false)
+
+	-- 4. Mount Universal Features (Speed, Jump, Visuals, Server)
+	local okUni, errUni = pcall(function()
+		Universal(window, miscTab, cleanup)
+	end)
+	if not okUni then
+		warn("[Frost] Error mounting Universal:", tostring(errUni))
+	end
+
+	-- 5. Mount Egg Predictor (Predictor tab)
+	local okPred, errPred = pcall(function()
+		EggPredictorTab(predictorTab, cleanup)
+	end)
+	if not okPred then
+		warn("[Frost] Error mounting EggPredictorTab:", tostring(errPred))
+	end
 
 	-- 6. Populate Events Tab
 	eventsTab:AddSection("Event Egg Predictor & Trackers")
@@ -78,7 +93,7 @@ local function buildHub()
 		window:notify("High-tier alerts: " .. (on and "Enabled" or "Disabled"), "info")
 	end)
 
-	-- Default to Main tab so all buttons and scripts are immediately visible on launch
+	-- Select Main tab so all action buttons and controls are immediately visible
 	window:select("Main")
 	window:notify("Frost Steal a Egg V4.6 Loaded!", "success")
 
@@ -94,7 +109,10 @@ local function start()
 
 	KeyPrompt.new({
 		onUnlocked = function()
-			buildHub()
+			local ok, err = pcall(buildHub)
+			if not ok then
+				warn("[Frost] Critical error building hub: " .. tostring(err))
+			end
 		end,
 	})
 end
