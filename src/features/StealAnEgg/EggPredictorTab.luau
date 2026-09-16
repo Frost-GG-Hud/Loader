@@ -73,20 +73,19 @@ return function(tab, cleanup)
 		Parent = page,
 	})
 
-	local eggIcon = Builder.label({
-		Size = UDim2.fromOffset(24, 24),
-		Position = UDim2.fromOffset(2, 2),
-		Font = Theme.FontBold,
-		TextSize = 16,
-		Text = "🥚",
-		TextColor3 = Theme.Accent,
-		TextXAlignment = Enum.TextXAlignment.Center,
+	local eggIcon = Builder.imageLabel({
+		Name = "EggIcon",
+		Size = UDim2.fromOffset(18, 18),
+		Position = UDim2.fromOffset(4, 5),
+		Image = "rbxassetid://7733774602",
+		ImageColor3 = Theme.Accent,
+		BackgroundTransparency = 1,
 		Parent = headerFrame,
 	})
 
 	local titleLbl = Builder.label({
 		Size = UDim2.new(1, -70, 1, 0),
-		Position = UDim2.fromOffset(30, 0),
+		Position = UDim2.fromOffset(28, 0),
 		Font = Theme.FontBold,
 		TextSize = 14,
 		Text = "Egg Predictor",
@@ -95,14 +94,13 @@ return function(tab, cleanup)
 		Parent = headerFrame,
 	})
 
-	local chevronLbl = Builder.label({
-		Size = UDim2.fromOffset(24, 24),
-		Position = UDim2.new(1, -26, 0, 2),
-		Font = Theme.FontBold,
-		TextSize = 13,
-		Text = "v",
-		TextColor3 = Theme.Accent,
-		TextXAlignment = Enum.TextXAlignment.Center,
+	local chevronLbl = Builder.imageLabel({
+		Name = "Chevron",
+		Size = UDim2.fromOffset(16, 16),
+		Position = UDim2.new(1, -22, 0.5, -8),
+		Image = "rbxassetid://7733717444",
+		ImageColor3 = Theme.Accent,
+		BackgroundTransparency = 1,
 		Parent = headerFrame,
 	})
 
@@ -278,13 +276,13 @@ return function(tab, cleanup)
 	Builder.corner(thumbBox, 6)
 	Builder.stroke(thumbBox, { Color = Theme.Border, Thickness = 1, Transparency = 0.4 })
 
-	local thumbEggIcon = Builder.label({
-		Size = UDim2.new(1, 0, 1, 0),
-		Font = Theme.FontBold,
-		TextSize = 36,
-		Text = "🥚",
-		TextColor3 = Theme.Accent,
-		TextXAlignment = Enum.TextXAlignment.Center,
+	local thumbEggIcon = Builder.imageLabel({
+		Name = "EggThumbIcon",
+		Size = UDim2.new(1, -20, 1, -20),
+		Position = UDim2.fromOffset(10, 10),
+		Image = "rbxassetid://7733774602",
+		ImageColor3 = Theme.Accent,
+		BackgroundTransparency = 1,
 		Parent = thumbBox,
 	})
 
@@ -423,13 +421,13 @@ return function(tab, cleanup)
 		})
 		Builder.corner(cardThumb, 4)
 
-		Builder.label({
-			Size = UDim2.new(1, 0, 1, 0),
-			Font = Theme.FontBold,
-			TextSize = 18,
-			Text = "🥚",
-			TextColor3 = isReady and Theme.ReadyGreen or Theme.Accent,
-			TextXAlignment = Enum.TextXAlignment.Center,
+		Builder.imageLabel({
+			Name = "CardEggIcon",
+			Size = UDim2.new(1, -10, 1, -10),
+			Position = UDim2.fromOffset(5, 5),
+			Image = "rbxassetid://7733774602",
+			ImageColor3 = isReady and Theme.ReadyGreen or Theme.Accent,
+			BackgroundTransparency = 1,
 			Parent = cardThumb,
 		})
 
