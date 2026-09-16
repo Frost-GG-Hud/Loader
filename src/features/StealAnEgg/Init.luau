@@ -232,9 +232,8 @@ return function(hub, tabs, cleanup)
 		}
 	)
 
-	defenseTab:AddButton("Neutralize Anti-Cheat (RigSync, AntiTP & Beacon)", function()
-		movement:neutralizeAntiCheat()
-		notify("Anti-cheat & telemetry beacons neutralized", "success")
+	defenseTab:AddButton("🔍 Dump Game Remotes & Guard Info (F9)", function()
+		movement:dumpDiagnostics()
 	end)
 
 	defenseTab:AddButton("Scan Egg Attributes (Console F9)", function()
