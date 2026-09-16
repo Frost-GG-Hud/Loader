@@ -622,45 +622,98 @@ function Movement:stealEgg(targetEntry)
 	return true
 end
 
+function Movement:isCarryingEgg()
+	local char = LocalPlayer.Character
+	if not char then return false end
+
+	for _, child in ipairs(char:GetChildren()) do
+		if child:IsA("Tool") or string.find(string.lower(child.Name), "egg", 1, true) then
+			return true
+		end
+	end
+
+	if char:GetAttribute("Carrying") or char:GetAttribute("CarryingEgg") or char:GetAttribute("HasEgg") then
+		return true
+	end
+	if LocalPlayer:GetAttribute("Carrying") or LocalPlayer:GetAttribute("CarryingEgg") or LocalPlayer:GetAttribute("HasEgg") then
+		return true
+	end
+
+	if eggStateModule then
+		if type(eggStateModule.IsCarryingEgg) == "function" then
+			local ok, res = pcall(eggStateModule.IsCarryingEgg)
+			if ok and res then return true end
+		end
+		if type(eggStateModule.GetCarriedEgg) == "function" then
+			local ok, res = pcall(eggStateModule.GetCarriedEgg)
+			if ok and res ~= nil then return true end
+		end
+	end
+
+	return false
+end
+
 -- Exploit Auto-Steal Sequence:
--- 1. Steal nearest decoy egg
--- 2. Wait for guard hit / aggro cooldown
+-- 1. Steal nearest decoy egg & wait until actually holding it
+-- 2. Wait until guard hits and ragdolls you
 -- 3. Teleport to designated target egg (>= minMoneyPerSec)
--- 4. Steal target egg
--- 5. Teleport above guard strike range (Y + 32)
--- 6. Glide/fly at altitude straight to base safe zone
+-- 4. Wait for designated egg to confirm
+-- 5. Steal designated egg & confirm carrying
+-- 6. Teleport to 'the thing' (elevated safe spot above guard hit range)
+-- 7. Walk really fast to spawn safe zone to claim & deposit
 function Movement:exploitSteal(target)
 	local hum, root = self:_context()
 	if not hum or not root or hum.Health <= 0 then
 		return false
 	end
 
-	-- Step 1: Find nearest decoy egg to trigger guard alert / swing
+	-- Step 1: Actually steal the nearest decoy egg at the start
 	local decoy = EggData.closest(nil, 0)
 	if decoy and decoy.uid ~= target.uid then
-		-- Teleport to decoy egg
 		pcall(function()
 			root.CFrame = CFrame.new(decoy.position + Vector3.new(0, 2.5, 0))
 		end)
 		task.wait(0.12)
 
-		-- Steal decoy egg
+		-- Trigger steal and wait until the egg tool/carry is confirmed
 		self:stealEgg(decoy)
-
-		-- Step 2: Wait for guard hit / alert
-		local startHealth = hum.Health
-		local guardAlertDeadline = os.clock() + 2.5
-		while os.clock() < guardAlertDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
-			if hum.Health < startHealth or hum.PlatformStand then
+		local carryDeadline = os.clock() + 1.5
+		while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+			if self:isCarryingEgg() then
 				break
 			end
 			task.wait(0.05)
 		end
 
-		-- Recover from hit/ragdoll immediately
+		-- Step 2: Wait till you get ragdolled by the guard
+		-- Temporarily permit ragdoll so the guard attack triggers the cooldown state
+		pcall(function()
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+		end)
+
+		local startHealth = hum.Health
+		local ragdollDeadline = os.clock() + 3.0
+		local wasRagdolled = false
+
+		while os.clock() < ragdollDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+			local state = hum:GetState()
+			if state == Enum.HumanoidStateType.Ragdoll
+				or state == Enum.HumanoidStateType.FallingDown
+				or hum.PlatformStand
+				or hum.Health < startHealth
+			then
+				wasRagdolled = true
+				break
+			end
+			task.wait(0.04)
+		end
+
+		-- Instantly recover from ragdoll
 		pcall(function()
 			hum.PlatformStand = false
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
 		task.wait(0.08)
 	end
@@ -669,61 +722,94 @@ function Movement:exploitSteal(target)
 		return false
 	end
 
-	-- Step 3: Teleport directly to designated target egg (>= minMoneyPerSec)
+	-- Step 3: Teleport to the designated egg
 	pcall(function()
 		root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
 	end)
-	task.wait(0.12)
 
-	-- Step 4: Steal designated egg
-	print(string.format("[Frost] ⚡ Stealing target egg (%s - %s)!", target.cleanDisplay or target.eggName or "Egg", EggData.formatMoney(target.moneyPerSec)))
+	-- Step 4: Wait for it to confirm
+	local confirmDeadline = os.clock() + 0.8
+	while os.clock() < confirmDeadline do
+		if target.prompt and target.prompt.Parent and target.prompt.Enabled then
+			break
+		end
+		task.wait(0.05)
+	end
+	task.wait(0.1)
+
+	-- Step 5: Steal the designated egg
+	print(string.format("[Frost] ⚡ Stealing designated egg (%s - %s)!", target.cleanDisplay or target.eggName or "Egg", EggData.formatMoney(target.moneyPerSec)))
 	self:stealEgg(target)
-	task.wait(0.12)
+	local targetCarryDeadline = os.clock() + 1.5
+	while os.clock() < targetCarryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		if self:isCarryingEgg() then
+			break
+		end
+		task.wait(0.05)
+	end
 
-	-- Step 5: Teleport vertically above guard strike reach (Y + 32 studs)
-	local highY = root.Position.Y + 32
+	-- Step 6: Teleport to 'the thing' (elevated safe spot Y + 30 above guard range)
+	local highY = root.Position.Y + 30
 	pcall(function()
 		root.CFrame = CFrame.new(root.Position.X, highY, root.Position.Z)
 	end)
-	task.wait(0.08)
+	task.wait(0.05)
 
-	-- Step 6: Fly/glide straight to base deposit safe zone
+	-- Step 7: Walk really really fast to the spawn to claim the egg
 	local basePos = self:findBasePosition()
 	if basePos then
 		local startPos = root.Position
 		local targetAirPos = Vector3.new(basePos.X, highY, basePos.Z)
-		local dist = (Vector3.new(targetAirPos.X, 0, targetAirPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-		local speed = math.clamp(self.customSpeed or 60, 35, 300)
-		local duration = math.clamp(dist / speed, 0.35, 6)
-		local startTime = os.clock()
+		local delta = targetAirPos - startPos
+		local dist = (Vector3.new(delta.X, 0, delta.Z)).Magnitude
 
-		local bv = nil
+		-- Spawn temporary solid runway platform ("the thing") under feet so character walks at high speed
+		local runway = nil
 		pcall(function()
-			bv = Instance.new("BodyVelocity")
-			bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-			bv.Velocity = Vector3.zero
-			bv.Parent = root
+			runway = Instance.new("Part")
+			runway.Name = "SafeRunwayThing"
+			runway.Size = Vector3.new(10, 1, math.max(dist + 20, 30))
+			runway.CFrame = CFrame.new(startPos:Lerp(targetAirPos, 0.5) - Vector3.new(0, 3.2, 0), targetAirPos - Vector3.new(0, 3.2, 0))
+			runway.Anchored = true
+			runway.CanCollide = true
+			runway.Transparency = 1
+			runway.Parent = workspace
 		end)
 
-		while os.clock() - startTime < duration and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
-			local alpha = math.clamp((os.clock() - startTime) / duration, 0, 1)
-			local curPos = startPos:Lerp(targetAirPos, alpha)
-			pcall(function()
-				root.CFrame = CFrame.new(curPos)
-			end)
-			task.wait()
+		local fastSpeed = math.clamp(self.customSpeed or 80, 50, 200)
+		hum.WalkSpeed = fastSpeed
+
+		local walkStart = os.clock()
+		local maxWalkTime = math.clamp(dist / fastSpeed + 1.2, 0.5, 6)
+
+		while os.clock() - walkStart < maxWalkTime and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+			local currentDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(targetAirPos.X, 0, targetAirPos.Z)).Magnitude
+			if currentDist <= 6 then
+				break
+			end
+
+			-- Walk forward on runway towards spawn
+			hum:MoveTo(targetAirPos)
+
+			-- Smooth CFrame micro-step forward to guarantee high walk velocity
+			local toBaseDir = (Vector3.new(targetAirPos.X - root.Position.X, 0, targetAirPos.Z - root.Position.Z))
+			if toBaseDir.Magnitude > 0.1 then
+				local step = toBaseDir.Unit * math.min(fastSpeed * 0.04, toBaseDir.Magnitude)
+				root.CFrame = CFrame.new(root.Position.X + step.X, highY, root.Position.Z + step.Z)
+			end
+			task.wait(0.04)
 		end
 
-		if bv then
-			pcall(function() bv:Destroy() end)
+		if runway then
+			pcall(function() runway:Destroy() end)
 		end
 
-		-- Descend safely to deposit pad in base
+		-- Drop down into the base safe zone to claim/deposit
 		pcall(function()
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.CFrame = CFrame.new(basePos + Vector3.new(0, 3, 0))
 		end)
-		task.wait(0.2)
+		task.wait(0.25)
 	end
 
 	self:logEggStolen(target)
