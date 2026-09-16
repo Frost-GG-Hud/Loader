@@ -73,14 +73,14 @@ function Header.new(config)
 		Transparency = 0.3,
 	})
 
-	-- Left Branding: "AJJANS"
+	-- Left Branding: "FROST"
 	local brandLabel = Builder.label({
 		Name = "BrandTitle",
 		Size = UDim2.new(0, 130, 1, 0),
 		Position = UDim2.fromOffset(14, 0),
 		Font = Theme.FontBold,
 		TextSize = 15,
-		Text = "AJJANS",
+		Text = "FROST",
 		TextColor3 = Theme.Accent,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 7,
