@@ -120,7 +120,8 @@ function Tab.new(config)
 
 	self._page = Builder.new("ScrollingFrame", {
 		Name = config.name,
-		Size = UDim2.new(1, 0, 1, 0),
+		Size = UDim2.new(1, -12, 1, -12),
+		Position = UDim2.fromOffset(6, 6),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 3,
@@ -130,8 +131,7 @@ function Tab.new(config)
 		CanvasSize = UDim2.new(0, 0, 0, BOTTOM_PADDING),
 		Visible = false,
 		ClipsDescendants = true,
-		-- Above the content panel (ZIndex 1) rather than relying on creation order.
-		ZIndex = 2,
+		ZIndex = 6,
 		Parent = config.pageParent,
 	})
 
