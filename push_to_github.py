@@ -30,6 +30,7 @@ FILES = [
     "src/core/Util.luau",
     "src/features/Universal.luau",
     "src/features/StealAnEgg/EggData.luau",
+    "src/features/StealAnEgg/EggPredictorTab.luau",
     "src/features/StealAnEgg/Esp.luau",
     "src/features/StealAnEgg/Init.luau",
     "src/features/StealAnEgg/Movement.luau",
