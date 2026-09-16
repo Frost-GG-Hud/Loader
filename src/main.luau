@@ -27,8 +27,8 @@ end
 
 local function buildHub()
 	local window = Window.new({
-		Name = "AjjansGui",
-		Title = "AJJANS",
+		Name = "FrostGui",
+		Title = "FROST",
 		Subtitle = "Steel a Egg V4.6",
 		Size = Vector2.new(640, 490),
 		ToggleKey = Config.ToggleKey,
@@ -141,7 +141,7 @@ local function buildHub()
 
 	-- Default to Predictor tab matching the user's reference image
 	window:select("➕ Predictor")
-	window:notify("Ajjans Steal a Egg V4.6 Loaded!", "success")
+	window:notify("Frost Steal a Egg V4.6 Loaded!", "success")
 
 	return window
 end
