@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 
 local ARRIVE_DISTANCE = 5        -- must be this close to fire the carry remote (server range ~300 studs is fine, but 5 ensures proximity prompt triggers)
@@ -82,6 +83,12 @@ function Movement.new(config)
 		customSpeed = 28,
 		minMoneyPerSec = 0,
 		rememberedBasePos = nil,
+		movementMode = "Tween",
+		tweenSpeed = 45,
+		movementElevation = 0,
+		movementNoclip = true,
+		returnToBase = true,
+		_currentTween = nil,
 		busy = false,
 		connections = {},
 	}, Movement)
@@ -187,6 +194,38 @@ function Movement:setSpeed(speed)
 	if hum then
 		hum.WalkSpeed = self.customSpeed
 	end
+end
+
+function Movement:setMovementMode(mode)
+	local validModes = {
+		["Tween"] = true,
+		["Walk (Pathfinding)"] = true,
+		["Ragdoll Exploit"] = true,
+		["CFrame Glide"] = true,
+		["Instant Teleport"] = true,
+	}
+	if validModes[mode] then
+		self.movementMode = mode
+		self.notify(string.format("Auto Steal movement: %s", mode), "success")
+	else
+		self.movementMode = "Tween"
+	end
+end
+
+function Movement:setTweenSpeed(speed)
+	self.tweenSpeed = math.clamp(tonumber(speed) or 45, 10, 300)
+end
+
+function Movement:setElevation(offset)
+	self.movementElevation = math.clamp(tonumber(offset) or 0, 0, 100)
+end
+
+function Movement:toggleMovementNoclip(enabled)
+	self.movementNoclip = enabled == true
+end
+
+function Movement:toggleReturnToBase(enabled)
+	self.returnToBase = enabled == true
 end
 
 function Movement:toggleSpeedBypass(enabled)
@@ -833,6 +872,296 @@ function Movement:exploitSteal(target)
 	return true
 end
 
+function Movement:tweenTo(targetPos, speed)
+	local hum, root = self:_context()
+	if not hum or not root or hum.Health <= 0 then
+		return false
+	end
+
+	local char = LocalPlayer.Character
+	local moveSpeed = tonumber(speed) or self.tweenSpeed or 45
+	local targetCF = typeof(targetPos) == "CFrame" and targetPos or CFrame.new(targetPos)
+
+	local dist = (targetCF.Position - root.Position).Magnitude
+	local duration = math.clamp(dist / math.max(moveSpeed, 5), 0.05, 30)
+
+	pcall(function()
+		hum.PlatformStand = true
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		root.Anchored = true
+	end)
+
+	local noclipConn = nil
+	if self.movementNoclip then
+		noclipConn = RunService.Stepped:Connect(function()
+			if char and char.Parent then
+				for _, part in ipairs(char:GetDescendants()) do
+					if part:IsA("BasePart") and part.CanCollide then
+						part.CanCollide = false
+					end
+				end
+			end
+		end)
+	end
+
+	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+	local tween = TweenService:Create(root, tweenInfo, { CFrame = targetCF })
+	self._currentTween = tween
+
+	local completed = false
+	local conn = tween.Completed:Connect(function()
+		completed = true
+	end)
+
+	tween:Play()
+
+	local deadline = os.clock() + duration + 0.5
+	while not completed and os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		local curHum, curRoot = self:_context()
+		if not curHum or not curRoot or curHum.Health <= 0 then
+			break
+		end
+		task.wait(0.05)
+	end
+
+	pcall(function()
+		conn:Disconnect()
+	end)
+	if not completed then
+		pcall(function()
+			tween:Cancel()
+		end)
+	end
+	self._currentTween = nil
+
+	if noclipConn then
+		pcall(function()
+			noclipConn:Disconnect()
+		end)
+	end
+
+	pcall(function()
+		root.Anchored = false
+		hum.PlatformStand = false
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end)
+
+	local finalRoot = Util.getRootPart()
+	if finalRoot then
+		local finalDist = (targetCF.Position - finalRoot.Position).Magnitude
+		return finalDist <= 6
+	end
+	return false
+end
+
+function Movement:tweenSteal(target)
+	local hum, root = self:_context()
+	if not hum or not root or hum.Health <= 0 then
+		return false
+	end
+
+	local eggPos = target.position
+	if not eggPos then
+		return false
+	end
+
+	if self.movementElevation and self.movementElevation > 0 then
+		local highPos = Vector3.new(eggPos.X, math.max(root.Position.Y, eggPos.Y) + self.movementElevation, eggPos.Z)
+		self:tweenTo(highPos, self.tweenSpeed)
+		if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+	end
+
+	self:tweenTo(eggPos + Vector3.new(0, 2, 0), self.tweenSpeed)
+	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+
+	self:stealEgg(target)
+
+	local carryDeadline = os.clock() + 0.8
+	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		if self:isCarryingEgg() then
+			break
+		end
+		task.wait(0.04)
+	end
+
+	if self.returnToBase then
+		local basePos = self:findBasePosition()
+		if basePos then
+			if self.movementElevation and self.movementElevation > 0 then
+				local highBase = Vector3.new(basePos.X, math.max(eggPos.Y, basePos.Y) + self.movementElevation, basePos.Z)
+				self:tweenTo(highBase, self.tweenSpeed)
+				if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+			end
+
+			self:tweenTo(basePos + Vector3.new(0, 3, 0), self.tweenSpeed)
+			task.wait(0.2)
+		end
+	end
+
+	self:logEggStolen(target)
+	return true
+end
+
+function Movement:walkSteal(target)
+	local hum, root = self:_context()
+	if not hum or not root or hum.Health <= 0 then
+		return false
+	end
+
+	local eggPos = target.position
+	if not eggPos then
+		return false
+	end
+
+	local arrived = self:safeWalkTo(eggPos, 20)
+	if not arrived or not (self.autoFarmBestRunning or self.autoFarmAllRunning) then
+		return false
+	end
+
+	self:stealEgg(target)
+
+	local carryDeadline = os.clock() + 0.8
+	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		if self:isCarryingEgg() then
+			break
+		end
+		task.wait(0.05)
+	end
+
+	if self.returnToBase then
+		local basePos = self:findBasePosition()
+		if basePos then
+			self:safeWalkTo(basePos, 25)
+			task.wait(0.2)
+		end
+	end
+
+	self:logEggStolen(target)
+	return true
+end
+
+function Movement:glideSteal(target)
+	local hum, root = self:_context()
+	if not hum or not root or hum.Health <= 0 then
+		return false
+	end
+
+	local eggPos = target.position
+	if not eggPos then
+		return false
+	end
+
+	local function glideTo(dest, maxTime)
+		local char = LocalPlayer.Character
+		local deadline = os.clock() + (maxTime or 15)
+		local noclipConn = nil
+		if self.movementNoclip then
+			noclipConn = RunService.Stepped:Connect(function()
+				if char and char.Parent then
+					for _, p in ipairs(char:GetDescendants()) do
+						if p:IsA("BasePart") and p.CanCollide then
+							p.CanCollide = false
+						end
+					end
+				end
+			end)
+		end
+
+		local speed = self.tweenSpeed or 45
+		while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+			local curHum, curRoot = self:_context()
+			if not curHum or not curRoot or curHum.Health <= 0 then break end
+			local delta = (dest - curRoot.Position)
+			if delta.Magnitude <= 4 then break end
+
+			local dt = RunService.Heartbeat:Wait()
+			local stepDist = math.min(speed * dt, delta.Magnitude)
+			curRoot.CFrame = curRoot.CFrame + (delta.Unit * stepDist)
+			curRoot.AssemblyLinearVelocity = Vector3.zero
+		end
+
+		if noclipConn then
+			pcall(function() noclipConn:Disconnect() end)
+		end
+	end
+
+	if self.movementElevation and self.movementElevation > 0 then
+		glideTo(Vector3.new(eggPos.X, math.max(root.Position.Y, eggPos.Y) + self.movementElevation, eggPos.Z), 10)
+	end
+	glideTo(eggPos + Vector3.new(0, 2, 0), 10)
+	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+
+	self:stealEgg(target)
+
+	local carryDeadline = os.clock() + 0.8
+	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		if self:isCarryingEgg() then break end
+		task.wait(0.04)
+	end
+
+	if self.returnToBase then
+		local basePos = self:findBasePosition()
+		if basePos then
+			if self.movementElevation and self.movementElevation > 0 then
+				glideTo(Vector3.new(basePos.X, math.max(eggPos.Y, basePos.Y) + self.movementElevation, basePos.Z), 10)
+			end
+			glideTo(basePos + Vector3.new(0, 3, 0), 10)
+			task.wait(0.2)
+		end
+	end
+
+	self:logEggStolen(target)
+	return true
+end
+
+function Movement:instantTeleportSteal(target)
+	local hum, root = self:_context()
+	if not hum or not root or hum.Health <= 0 then
+		return false
+	end
+
+	local char = LocalPlayer.Character
+	local targetCF = CFrame.new(target.position + Vector3.new(0, 2, 0))
+	teleportCharacter(char, targetCF)
+	task.wait(0.08)
+
+	self:stealEgg(target)
+
+	local carryDeadline = os.clock() + 0.8
+	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		if self:isCarryingEgg() then break end
+		task.wait(0.04)
+	end
+
+	if self.returnToBase then
+		local basePos = self:findBasePosition()
+		if basePos then
+			teleportCharacter(char, CFrame.new(basePos + Vector3.new(0, 3, 0)))
+			task.wait(0.15)
+		end
+	end
+
+	self:logEggStolen(target)
+	return true
+end
+
+function Movement:executeAutoSteal(target)
+	local mode = self.movementMode or "Tween"
+	if mode == "Tween" then
+		return self:tweenSteal(target)
+	elseif mode == "Walk (Pathfinding)" then
+		return self:walkSteal(target)
+	elseif mode == "CFrame Glide" then
+		return self:glideSteal(target)
+	elseif mode == "Instant Teleport" then
+		return self:instantTeleportSteal(target)
+	else
+		return self:exploitSteal(target)
+	end
+end
+
 -- Auto Farm (Best Eggs Only): Respects minMoneyPerSec, exploit steal & spawn wait
 function Movement:toggleAutoFarmBest(enabled)
 	if not enabled then
@@ -846,7 +1175,7 @@ function Movement:toggleAutoFarmBest(enabled)
 	self.autoFarmAllRunning = false
 	self.autoFarmBestRunning = true
 	self:neutralizeAntiCheat()
-	self.notify(string.format("Auto Steal active • Min: %s • Speed %d", EggData.formatMoney(self.minMoneyPerSec), self.customSpeed), "success")
+	self.notify(string.format("Auto Steal active • Mode: %s • Min: %s • Speed %d", self.movementMode or "Tween", EggData.formatMoney(self.minMoneyPerSec), self.customSpeed), "success")
 
 	Util.spawn(function()
 		local waitingAtSpawn = false
@@ -896,8 +1225,8 @@ function Movement:toggleAutoFarmBest(enabled)
 			-- Target found! Reset spawn wait flag
 			waitingAtSpawn = false
 
-			-- 2. Execute exploit steal sequence
-			local ok = self:exploitSteal(target)
+			-- 2. Execute auto steal sequence using selected movement system
+			local ok = self:executeAutoSteal(target)
 			if not ok then
 				task.wait(0.5)
 			else
@@ -920,7 +1249,7 @@ function Movement:toggleAutoFarmAll(enabled)
 	self.autoFarmBestRunning = false
 	self.autoFarmAllRunning = true
 	self:neutralizeAntiCheat()
-	self.notify(string.format("Auto Farm (All) active • Min: %s • Speed %d", EggData.formatMoney(self.minMoneyPerSec), self.customSpeed), "success")
+	self.notify(string.format("Auto Farm (All) active • Mode: %s • Min: %s • Speed %d", self.movementMode or "Tween", EggData.formatMoney(self.minMoneyPerSec), self.customSpeed), "success")
 
 	Util.spawn(function()
 		local waitingAtSpawn = false
@@ -967,7 +1296,7 @@ function Movement:toggleAutoFarmAll(enabled)
 
 			waitingAtSpawn = false
 
-			local ok = self:exploitSteal(target)
+			local ok = self:executeAutoSteal(target)
 			if not ok then
 				task.wait(0.5)
 			else
@@ -1543,6 +1872,23 @@ function Movement:toggleAutoTreadmill(enabled)
 end
 
 function Movement:stop()
+	if self._currentTween then
+		pcall(function()
+			self._currentTween:Cancel()
+		end)
+		self._currentTween = nil
+	end
+	pcall(function()
+		local root = Util.getRootPart()
+		local hum = Util.getHumanoid()
+		if root then
+			root.Anchored = false
+			root.AssemblyLinearVelocity = Vector3.zero
+		end
+		if hum then
+			hum.PlatformStand = false
+		end
+	end)
 	self.autoFarmAllRunning = false
 	self.autoFarmBestRunning = false
 	self.autoCashRunning = false
