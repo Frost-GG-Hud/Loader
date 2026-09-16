@@ -685,8 +685,7 @@ function Movement:exploitSteal(target)
 			task.wait(0.05)
 		end
 
-		-- Step 2: Wait till you get ragdolled by the guard
-		-- Temporarily permit ragdoll so the guard attack triggers the cooldown state
+		-- Step 2: Wait until guard hits and you get ragdolled
 		pcall(function()
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
@@ -694,7 +693,6 @@ function Movement:exploitSteal(target)
 
 		local startHealth = hum.Health
 		local ragdollDeadline = os.clock() + 3.0
-		local wasRagdolled = false
 
 		while os.clock() < ragdollDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 			local state = hum:GetState()
@@ -703,39 +701,43 @@ function Movement:exploitSteal(target)
 				or hum.PlatformStand
 				or hum.Health < startHealth
 			then
-				wasRagdolled = true
 				break
 			end
 			task.wait(0.04)
 		end
 
-		-- Instantly recover from ragdoll
+		-- Step 3: DURING RAGDOLL, instantly teleport to the designated egg
+		pcall(function()
+			root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
+		end)
+
+		-- Step 4: Wait for designated egg to load and confirm while ragdolled
+		local confirmDeadline = os.clock() + 0.8
+		while os.clock() < confirmDeadline do
+			if target.prompt and target.prompt.Parent and target.prompt.Enabled then
+				break
+			end
+			task.wait(0.05)
+		end
+		task.wait(0.15)
+
+		-- Recover from ragdoll now that character is at designated egg and it has loaded
 		pcall(function()
 			hum.PlatformStand = false
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
 		task.wait(0.08)
+	else
+		pcall(function()
+			root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
+		end)
+		task.wait(0.2)
 	end
 
 	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then
 		return false
 	end
-
-	-- Step 3: Teleport to the designated egg
-	pcall(function()
-		root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
-	end)
-
-	-- Step 4: Wait for it to confirm
-	local confirmDeadline = os.clock() + 0.8
-	while os.clock() < confirmDeadline do
-		if target.prompt and target.prompt.Parent and target.prompt.Enabled then
-			break
-		end
-		task.wait(0.05)
-	end
-	task.wait(0.1)
 
 	-- Step 5: Steal the designated egg
 	print(string.format("[Frost] ⚡ Stealing designated egg (%s - %s)!", target.cleanDisplay or target.eggName or "Egg", EggData.formatMoney(target.moneyPerSec)))
