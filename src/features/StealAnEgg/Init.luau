@@ -18,9 +18,10 @@ return function(hub, tabs, cleanup)
 	local esp = Esp.new({ notify = notify, range = DEFAULT_RANGE })
 	local movement = Movement.new({ notify = notify })
 
-	local mainTab = tabs.autoTab or tabs
-	local espTab = tabs.espTab or tabs
-	local defenseTab = tabs.defenseTab or tabs
+	local mainTab = tabs.mainTab or tabs.autoTab or tabs
+	local autoTab = tabs.autoTab or tabs
+	local espTab = tabs.espTab or mainTab
+	local defenseTab = tabs.defenseTab or autoTab
 	local webhookTab = tabs.webhookTab or tabs
 
 	local function teardown()
@@ -33,14 +34,31 @@ return function(hub, tabs, cleanup)
 	end
 	cleanup.track(teardown)
 
-	-- ------------------------------------------------------------- MAIN (OMG HUB STYLE)
-	mainTab:AddSection("Auto Steal & Quick Actions")
+	-- ------------------------------------------------------------- MAIN TAB (ACTIONS & CONTROLS)
+	mainTab:AddSection("⚡ Quick Actions & Safe Speed")
 
 	mainTab:AddButton("⚡ Apply Safe Fast Speed (95) >", function()
 		movement:setSpeed(95)
 		movement:toggleSpeedBypass(true)
 		notify("Applied safe speed: 95 (no rubberbanding)", "success")
 	end)
+
+	mainTab:AddButton("🏃 Extreme Speed (150) >", function()
+		movement:setSpeed(150)
+		movement:toggleSpeedBypass(true)
+		notify("Applied extreme speed: 150", "warning")
+	end)
+
+	mainTab:AddButton("🛑 Stop All Automation & Reset Speed", function()
+		movement:setSpeed(16)
+		movement:toggleSpeedBypass(false)
+		movement:toggleAutoFarmBest(false)
+		movement:toggleAutoFarmAll(false)
+		movement:toggleAutoTreadmill(false)
+		notify("Stopped automation and reset speed to default", "info")
+	end, true)
+
+	mainTab:AddSection("🥚 Auto Steal & Automation")
 
 	-- 2-Column Grid Row 1: Auto Steal | Auto Treadmill
 	mainTab:AddToggleGrid(
@@ -114,17 +132,21 @@ return function(hub, tabs, cleanup)
 		movement:toggleSpeedBypass(on)
 	end)
 
-	mainTab:AddSection("Farming Options")
+	mainTab:AddSection("🌾 Farming & Offline Cash")
+
+	mainTab:AddToggle("Auto Farm Highest Value Eggs First", false, function(on)
+		movement:toggleAutoFarmBest(on)
+	end)
 
 	mainTab:AddToggle("Auto Farm All Nearby Eggs (Nearest First)", false, function(on)
 		movement:toggleAutoFarmAll(on)
 	end)
 
-	mainTab:AddToggle("Auto Collect Offline Cash", false, function(on)
+	mainTab:AddToggle("Auto Collect Offline Cash (Treadmill AFK)", false, function(on)
 		movement:toggleAutoCash(on)
 	end)
 
-	mainTab:AddButton("Equip Best Pets (WearBest)", function()
+	mainTab:AddButton("✨ Equip Best Pets (WearBest)", function()
 		movement:equipBestPets()
 	end)
 
