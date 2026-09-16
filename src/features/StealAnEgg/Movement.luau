@@ -73,6 +73,7 @@ function Movement.new(config)
 		monsterBypassRunning = false,
 		antiRagdollRunning = false,
 		antiKnockbackRunning = false,
+		antiGuardHitRunning = false,
 		autoTreadmillRunning = false,
 		speedBypassRunning = false,
 		webhookEnabled = false,
@@ -127,11 +128,24 @@ function Movement:neutralizeAntiCheat()
 		self._hookedCorrection = true
 		pcall(function()
 			local oldNamecall
+			local badgeService = game:GetService("BadgeService")
 			oldNamecall = hookmetamethod(game, "__namecall", function(selfObj, ...)
 				local method = getnamecallmethod()
 				if (method == "FireServer" or method == "fireServer") and not checkcaller() then
-					if selfObj and (selfObj.Name == "RE/RigSync/CorrectionBegan" or string.find(tostring(selfObj), "CorrectionBegan", 1, true)) then
-						return nil
+					if selfObj then
+						local name = tostring(selfObj.Name)
+						-- 1. Block anti-cheat rubberband position rollback
+						if name == "RE/RigSync/CorrectionBegan" or string.find(name, "CorrectionBegan", 1, true) then
+							return nil
+						end
+						-- 2. Block disguised BadgeService GUID telemetry beacons
+						if badgeService and selfObj.Parent == badgeService then
+							return nil
+						end
+						-- 3. Block guard hit/rouse triggers if anti-guard is active
+						if (name == "RE/GuardPatrol/Rouse" or string.find(name, "GuardPatrol", 1, true)) and self.antiGuardHitRunning then
+							return nil
+						end
 					end
 				end
 				return oldNamecall(selfObj, ...)
@@ -709,6 +723,43 @@ function Movement:toggleAutoFarmAll(enabled)
 	end)
 end
 
+-- Claim Offline Income via RF/AwayEarnings/AskCollect
+function Movement:claimOfflineIncome()
+	local claimed = false
+	local amount = nil
+	pcall(function()
+		local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
+		local rfAway = (networking and networking:FindFirstChild("RF/AwayEarnings/AskCollect"))
+			or ReplicatedStorage:FindFirstChild("RF/AwayEarnings/AskCollect", true)
+		if rfAway and rfAway:IsA("RemoteFunction") then
+			local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+			local platformController = playerScripts and playerScripts:FindFirstChild("Game") and playerScripts.Game:FindFirstChild("PlatformController")
+			local result = nil
+			if platformController then
+				result = rfAway:InvokeServer(platformController)
+			else
+				result = rfAway:InvokeServer()
+			end
+
+			if result and type(result) == "table" then
+				claimed = true
+				if result[3] and result[3].AwardedAmount then
+					amount = result[3].AwardedAmount
+				end
+			end
+		end
+	end)
+
+	if claimed and amount then
+		self.notify(string.format("Claimed offline income: +%s!", EggData.formatMoney(amount)), "success")
+	elseif claimed then
+		self.notify("Claimed offline income successfully!", "success")
+	else
+		self.notify("No offline income currently available to claim", "info")
+	end
+	return claimed
+end
+
 -- Auto Collect Offline Cash
 function Movement:toggleAutoCash(enabled)
 	if not enabled then
@@ -718,30 +769,26 @@ function Movement:toggleAutoCash(enabled)
 	end
 
 	self.autoCashRunning = true
-	self.notify("Auto Cash enabled", "success")
+	self.notify("Auto Cash enabled (using PlatformController remote)", "success")
 
 	Util.spawn(function()
 		while self.autoCashRunning do
 			pcall(function()
-				-- Method 1: Required Module Remotes
-				local ok, Remotes = pcall(function()
-					return require(ReplicatedStorage.Shared.Remotes)
-				end)
-				if ok and Remotes and Remotes.AwayEarnings and Remotes.AwayEarnings.AskCollect then
-					pcall(function()
-						Remotes.AwayEarnings.AskCollect:InvokeServer({ Kind = "Claim" })
-					end)
+				-- Method 1: Packages.Networking RF/AwayEarnings/AskCollect with PlatformController
+				local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
+				local rfAway = (networking and networking:FindFirstChild("RF/AwayEarnings/AskCollect"))
+					or ReplicatedStorage:FindFirstChild("RF/AwayEarnings/AskCollect", true)
+				if rfAway and rfAway:IsA("RemoteFunction") then
+					local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+					local platformController = playerScripts and playerScripts:FindFirstChild("Game") and playerScripts.Game:FindFirstChild("PlatformController")
+					if platformController then
+						rfAway:InvokeServer(platformController)
+					else
+						rfAway:InvokeServer()
+					end
 				end
 
-				-- Method 2: Direct RemoteFunction instances in ReplicatedStorage
-				local rfCollect = ReplicatedStorage:FindFirstChild("RF/AwayEarnings/AskCollect", true)
-				if rfCollect and rfCollect:IsA("RemoteFunction") then
-					pcall(function()
-						rfCollect:InvokeServer({ Kind = "Claim" })
-					end)
-				end
-
-				-- Method 3: Touch collection pads or proximity prompts in plots
+				-- Method 2: Sweep proximity prompts in plots
 				local root = Util.getRootPart()
 				if root then
 					for _, desc in ipairs(workspace:GetDescendants()) do
@@ -881,6 +928,68 @@ function Movement:toggleMonsterBypass(enabled)
 									local tt = part:FindFirstChildWhichIsA("TouchTransmitter")
 									if tt then pcall(function() tt:Destroy() end) end
 								end
+							end
+						end
+					end
+				end
+			end)
+			task.wait(1.5)
+		end
+	end)
+end
+
+-- Anti Guard Hit: Freezes guards in GuardAreas, disables touch hitboxes, and suppresses knockback interruptions
+function Movement:toggleAntiGuardHit(enabled)
+	if not enabled then
+		self.antiGuardHitRunning = false
+		self.notify("Anti Guard Hit disabled", "info")
+		return
+	end
+
+	self.antiGuardHitRunning = true
+	self.notify("Anti Guard Hit enabled - guards frozen & carry knockback blocked", "success")
+
+	Util.spawn(function()
+		while self.antiGuardHitRunning do
+			pcall(function()
+				-- 1. Targeted search in workspace.__OBJECTS.Areas.GuardAreas
+				local obj = workspace:FindFirstChild("__OBJECTS")
+				local areas = obj and obj:FindFirstChild("Areas")
+				local guardAreas = areas and areas:FindFirstChild("GuardAreas")
+				if guardAreas then
+					for _, area in ipairs(guardAreas:GetChildren()) do
+						for _, desc in ipairs(area:GetDescendants()) do
+							if desc:IsA("Model") and (desc.Name == "Guard" or desc:FindFirstChildOfClass("Humanoid")) then
+								local hum = desc:FindFirstChildOfClass("Humanoid")
+								if hum then
+									hum.WalkSpeed = 0
+								end
+								for _, p in ipairs(desc:GetDescendants()) do
+									if p:IsA("BasePart") then
+										p.CanCollide = false
+										p.CanTouch = false
+										local tt = p:FindFirstChildWhichIsA("TouchTransmitter")
+										if tt then
+											pcall(function() tt:Destroy() end)
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+
+				-- 2. General guard fallback across workspace
+				for _, model in ipairs(workspace:GetDescendants()) do
+					if model:IsA("Model") and model ~= Util.getCharacter() and (string.find(string.lower(model.Name), "guard", 1, true) or model.Name == "Guard") then
+						local hum = model:FindFirstChildOfClass("Humanoid")
+						if hum then hum.WalkSpeed = 0 end
+						for _, p in ipairs(model:GetDescendants()) do
+							if p:IsA("BasePart") then
+								p.CanCollide = false
+								p.CanTouch = false
+								local tt = p:FindFirstChildWhichIsA("TouchTransmitter")
+								if tt then pcall(function() tt:Destroy() end) end
 							end
 						end
 					end
