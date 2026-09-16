@@ -103,7 +103,9 @@ end
 local function start()
 	pcall(function()
 		if setidentity then
-			setidentity(8)
+			setidentity(7)
+		elseif setthreadidentity then
+			setthreadidentity(7)
 		end
 	end)
 
