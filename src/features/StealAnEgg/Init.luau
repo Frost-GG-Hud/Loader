@@ -58,6 +58,10 @@ return function(hub, tabs, cleanup)
 		notify("Stopped automation and reset speed to default", "info")
 	end, true)
 
+	mainTab:AddButton("💰 Claim Offline Income Now >", function()
+		movement:claimOfflineIncome()
+	end)
+
 	mainTab:AddSection("🥚 Auto Steal & Automation")
 
 	-- 2-Column Grid Row 1: Auto Steal | Auto Treadmill
@@ -100,7 +104,27 @@ return function(hub, tabs, cleanup)
 		}
 	)
 
-	-- 2-Column Grid Row 3: Speed | Steal By Value (Input boxes)
+	-- 2-Column Grid Row 3: Anti Guard Hit | Monster Bypass
+	mainTab:AddToggleGrid(
+		{
+			title = "Anti Guard Hit",
+			desc = "Blocks guard knockback & drops",
+			default = false,
+			onChange = function(on)
+				movement:toggleAntiGuardHit(on)
+			end,
+		},
+		{
+			title = "Monster Bypass",
+			desc = "Freezes NPCs & hitboxes",
+			default = false,
+			onChange = function(on)
+				movement:toggleMonsterBypass(on)
+			end,
+		}
+	)
+
+	-- 2-Column Grid Row 4: Speed | Steal By Value (Input boxes)
 	mainTab:AddInputGrid(
 		{
 			title = "Speed",
@@ -191,26 +215,26 @@ return function(hub, tabs, cleanup)
 
 	defenseTab:AddToggleGrid(
 		{
+			title = "Anti Guard Hit",
+			desc = "Blocks guard knockback & drops",
+			default = false,
+			onChange = function(on)
+				movement:toggleAntiGuardHit(on)
+			end,
+		},
+		{
 			title = "Anti-Trap",
 			desc = "Walk through all traps",
 			default = false,
 			onChange = function(on)
 				movement:toggleAntiTrap(on)
 			end,
-		},
-		{
-			title = "Monster Bypass",
-			desc = "Freezes NPCs & hitboxes",
-			default = false,
-			onChange = function(on)
-				movement:toggleMonsterBypass(on)
-			end,
 		}
 	)
 
-	defenseTab:AddButton("Neutralize Anti-Cheat (ObbyAntiTP)", function()
+	defenseTab:AddButton("Neutralize Anti-Cheat (RigSync, AntiTP & Beacon)", function()
 		movement:neutralizeAntiCheat()
-		notify("Anti-cheat scripts neutralized", "success")
+		notify("Anti-cheat & telemetry beacons neutralized", "success")
 	end)
 
 	defenseTab:AddButton("Scan Egg Attributes (Console F9)", function()
