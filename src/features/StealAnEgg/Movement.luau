@@ -84,7 +84,7 @@ function Movement.new(config)
 		minMoneyPerSec = 0,
 		rememberedBasePos = nil,
 		movementMode = "Tween",
-		tweenSpeed = 45,
+		tweenSpeed = 110,
 		movementElevation = 0,
 		movementNoclip = true,
 		returnToBase = true,
@@ -213,7 +213,7 @@ function Movement:setMovementMode(mode)
 end
 
 function Movement:setTweenSpeed(speed)
-	self.tweenSpeed = math.clamp(tonumber(speed) or 45, 10, 300)
+	self.tweenSpeed = math.clamp(tonumber(speed) or 110, 10, 500)
 end
 
 function Movement:setElevation(offset)
@@ -767,68 +767,51 @@ function Movement:isCarryingEgg()
 	local char = LocalPlayer.Character
 	if not char then return false end
 
-	-- 1. Check tools/models in Character
+	-- 1. Check Tool in Character (equipped egg)
 	for _, child in ipairs(char:GetChildren()) do
-		if child:IsA("Tool") or string.find(string.lower(child.Name), "egg", 1, true) then
+		if child:IsA("Tool") and string.find(string.lower(child.Name), "egg", 1, true) then
 			return true
 		end
 	end
 
-	-- 2. Check Backpack
+	-- 2. Check Tool in Backpack (egg in inventory)
 	local backpack = LocalPlayer:FindFirstChild("Backpack")
 	if backpack then
 		for _, item in ipairs(backpack:GetChildren()) do
-			if item:IsA("Tool") or string.find(string.lower(item.Name), "egg", 1, true) then
+			if item:IsA("Tool") and string.find(string.lower(item.Name), "egg", 1, true) then
 				return true
 			end
 		end
 	end
 
-	-- 3. Check character attributes
-	for k, v in pairs(char:GetAttributes()) do
-		local lowerK = string.lower(tostring(k))
-		if (string.find(lowerK, "carry", 1, true) or string.find(lowerK, "egg", 1, true) or string.find(lowerK, "holding", 1, true)) and v ~= false and v ~= nil and v ~= 0 and v ~= "" then
+	-- 3. Strict boolean / string carry attributes on Character
+	for _, attr in ipairs({ "Carrying", "CarryingEgg", "HasEgg", "IsCarrying", "HoldingEgg" }) do
+		local val = char:GetAttribute(attr)
+		if val == true or (type(val) == "string" and val ~= "") then
+			return true
+		end
+		local pVal = LocalPlayer:GetAttribute(attr)
+		if pVal == true or (type(pVal) == "string" and pVal ~= "") then
 			return true
 		end
 	end
 
-	-- 4. Check player attributes
-	for k, v in pairs(LocalPlayer:GetAttributes()) do
-		local lowerK = string.lower(tostring(k))
-		if (string.find(lowerK, "carry", 1, true) or string.find(lowerK, "egg", 1, true) or string.find(lowerK, "holding", 1, true)) and v ~= false and v ~= nil and v ~= 0 and v ~= "" then
-			return true
-		end
-	end
-
-	-- 5. Check EggState game module
+	-- 4. Check EggState game module
 	if eggStateModule then
-		for _, fnName in ipairs({ "IsCarryingEgg", "GetCarriedEgg", "GetCarryingEgg", "IsCarrying", "ReadCarriedEgg" }) do
-			if type(eggStateModule[fnName]) == "function" then
-				local ok, res = pcall(eggStateModule[fnName])
-				if ok and res ~= nil and res ~= false then
-					return true
-				end
-			end
+		if type(eggStateModule.IsCarryingEgg) == "function" then
+			local ok, res = pcall(eggStateModule.IsCarryingEgg)
+			if ok and res == true then return true end
+		end
+		if type(eggStateModule.GetCarriedEgg) == "function" then
+			local ok, res = pcall(eggStateModule.GetCarriedEgg)
+			if ok and type(res) == "table" and res.Uid ~= nil then return true end
 		end
 	end
 
-	-- 6. Check for welded parts/models attached to limbs
-	for _, partName in ipairs({ "Head", "UpperTorso", "Torso", "RightHand", "LeftHand" }) do
-		local limb = char:FindFirstChild(partName)
-		if limb then
-			for _, joint in ipairs(limb:GetChildren()) do
-				if joint:IsA("Weld") or joint:IsA("WeldConstraint") or joint:IsA("Motor6D") then
-					local part0 = joint.Part0
-					local part1 = joint.Part1
-					local otherPart = (part0 == limb and part1) or part0
-					if otherPart and otherPart ~= limb and not otherPart:IsDescendantOf(char) then
-						return true
-					end
-					if otherPart and string.find(string.lower(otherPart.Name), "egg", 1, true) then
-						return true
-					end
-				end
-			end
+	-- 5. Specifically named CarriedEgg model in Character
+	for _, child in ipairs(char:GetChildren()) do
+		if child:IsA("Model") and (child.Name == "CarriedEgg" or string.find(string.lower(child.Name), "carriedegg", 1, true)) then
+			return true
 		end
 	end
 
@@ -1032,17 +1015,21 @@ function Movement:tweenTo(targetPos, speed)
 	end
 
 	local char = LocalPlayer.Character
-	local moveSpeed = tonumber(speed) or self.tweenSpeed or 45
+	local moveSpeed = tonumber(speed) or self.tweenSpeed or 110
 	local targetCF = typeof(targetPos) == "CFrame" and targetPos or CFrame.new(targetPos)
 
 	local dist = (targetCF.Position - root.Position).Magnitude
-	local duration = math.clamp(dist / math.max(moveSpeed, 5), 0.05, 30)
+	if dist < 2 then
+		return true
+	end
+
+	-- Fast calculation: snappy, responsive transit without dragging
+	local duration = math.clamp(dist / math.max(moveSpeed, 10), 0.04, 15)
 
 	pcall(function()
 		hum.PlatformStand = true
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
-		root.Anchored = true
 	end)
 
 	local noclipConn = nil
@@ -1063,19 +1050,22 @@ function Movement:tweenTo(targetPos, speed)
 	self._currentTween = tween
 
 	local completed = false
-	local conn = tween.Completed:Connect(function()
-		completed = true
+	local conn = tween.Completed:Connect(function(state)
+		if state == Enum.PlaybackState.Completed then
+			completed = true
+		end
 	end)
 
 	tween:Play()
 
-	local deadline = os.clock() + duration + 0.5
+	local deadline = os.clock() + duration + 0.3
 	while not completed and os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 		local curHum, curRoot = self:_context()
 		if not curHum or not curRoot or curHum.Health <= 0 then
 			break
 		end
-		task.wait(0.05)
+		curRoot.AssemblyLinearVelocity = Vector3.zero
+		task.wait(0.03)
 	end
 
 	pcall(function()
@@ -1095,16 +1085,16 @@ function Movement:tweenTo(targetPos, speed)
 	end
 
 	pcall(function()
-		root.Anchored = false
-		hum.PlatformStand = false
+		root.CFrame = targetCF
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
+		hum.PlatformStand = false
 	end)
 
 	local finalRoot = Util.getRootPart()
 	if finalRoot then
 		local finalDist = (targetCF.Position - finalRoot.Position).Magnitude
-		return finalDist <= 6
+		return finalDist <= 8
 	end
 	return false
 end
@@ -1120,16 +1110,32 @@ function Movement:tweenSteal(target)
 		return false
 	end
 
+	-- 1. Elevation transit to glide over obstacles
 	if self.movementElevation and self.movementElevation > 0 then
 		local highPos = Vector3.new(eggPos.X, math.max(root.Position.Y, eggPos.Y) + self.movementElevation, eggPos.Z)
 		self:tweenTo(highPos, self.tweenSpeed)
 		if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
 	end
 
+	-- 2. Tween right to the egg
 	self:tweenTo(eggPos + Vector3.new(0, 1.5, 0), self.tweenSpeed)
 	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
 
-	-- Try stealing with prompt discovery and retries
+	-- 3. VERIFY PHYSICAL ARRIVAL: Player MUST be physically near the egg before attempting to collect!
+	local curHum, curRoot = self:_context()
+	if not curRoot then return false end
+	local currentDist = (curRoot.Position - eggPos).Magnitude
+	if currentDist > 14 then
+		-- Snap to egg if slightly off
+		self:tweenTo(eggPos + Vector3.new(0, 1.5, 0), self.tweenSpeed)
+		curRoot = Util.getRootPart()
+		if not curRoot or (curRoot.Position - eggPos).Magnitude > 14 then
+			self.notify(string.format("⚠️ Transit incomplete (dist: %.0f studs). Skipping...", (curRoot and (curRoot.Position - eggPos).Magnitude or 999)), "warning")
+			return false
+		end
+	end
+
+	-- 4. Try stealing with prompt discovery and retries (staying at the egg)
 	local collected = false
 	local deadline = os.clock() + 3.0
 	while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
@@ -1141,6 +1147,7 @@ function Movement:tweenSteal(target)
 		end
 	end
 
+	-- 5. Only return to base if an egg was genuinely collected!
 	if collected then
 		self.notify(string.format("🥚 Collected %s! Returning to base...", target.eggName or target.petName or "Egg"), "success")
 		if self.returnToBase then
@@ -1187,6 +1194,11 @@ function Movement:walkSteal(target)
 
 	local arrived = self:safeWalkTo(eggPos, 20)
 	if not arrived or not (self.autoFarmBestRunning or self.autoFarmAllRunning) then
+		return false
+	end
+
+	local curHum, curRoot = self:_context()
+	if not curRoot or (curRoot.Position - eggPos).Magnitude > 14 then
 		return false
 	end
 
@@ -1255,7 +1267,7 @@ function Movement:glideSteal(target)
 			end)
 		end
 
-		local speed = self.tweenSpeed or 45
+		local speed = self.tweenSpeed or 110
 		while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 			local curHum, curRoot = self:_context()
 			if not curHum or not curRoot or curHum.Health <= 0 then break end
@@ -1278,6 +1290,11 @@ function Movement:glideSteal(target)
 	end
 	glideTo(eggPos + Vector3.new(0, 1.5, 0), 10)
 	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+
+	local curHumG, curRootG = self:_context()
+	if not curRootG or (curRootG.Position - eggPos).Magnitude > 14 then
+		return false
+	end
 
 	local collected = false
 	local deadline = os.clock() + 3.0
@@ -1330,6 +1347,11 @@ function Movement:instantTeleportSteal(target)
 	local targetCF = CFrame.new(target.position + Vector3.new(0, 1.5, 0))
 	teleportCharacter(char, targetCF)
 	task.wait(0.08)
+
+	local curHumT, curRootT = self:_context()
+	if not curRootT or (curRootT.Position - target.position).Magnitude > 14 then
+		return false
+	end
 
 	local collected = false
 	local deadline = os.clock() + 3.0
