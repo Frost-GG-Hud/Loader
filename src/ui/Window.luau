@@ -237,7 +237,7 @@ function Window:_buildBody()
 		Size = UDim2.new(1, -(M.ContentInset + 12), 1, -(M.ContentTop + 26)),
 		Position = UDim2.fromOffset(M.ContentInset, M.ContentTop),
 		BackgroundColor3 = Theme.Surface,
-		ClipsDescendants = false,
+		ClipsDescendants = true,
 		ZIndex = 2,
 		Parent = self.window,
 	})
