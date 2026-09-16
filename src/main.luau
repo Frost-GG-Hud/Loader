@@ -1,10 +1,10 @@
--- Frost hub entry point.
--- Builds the window, registers tabs, user profile card, launcher decision, and wires feature modules.
--- Started by Loader.luau, which passes the shared context as `...`.
+-- Ajjans Steal an Egg V4.6 Entry Point
+-- Builds window, sets up navigation tabs (Main, Automation, Events, Predictor, Misc)
+-- and mounts feature modules.
 
 local ctx = ...
 if type(ctx) ~= "table" or type(ctx.require) ~= "function" then
-	warn("[Frost] main.luau must be started by Loader.luau.")
+	warn("[Ajjans] main.luau must be started by Loader.luau.")
 	return
 end
 
@@ -16,10 +16,10 @@ local Window = ctx.require("ui/Window")
 local KeyPrompt = ctx.require("ui/KeyPrompt")
 local Universal = ctx.require("features/Universal")
 local StealAnEgg = ctx.require("features/StealAnEgg/Init")
+local EggPredictorTab = ctx.require("features/StealAnEgg/EggPredictorTab")
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local STEAL_AN_EGG_PLACE_ID = 107778070777162
 
 local function keyLabel(keyCode)
 	return (string.gsub(tostring(keyCode), "^Enum%.KeyCode%.", ""))
@@ -27,10 +27,10 @@ end
 
 local function buildHub()
 	local window = Window.new({
-		Name = "FrostGui",
-		Title = "FROST HUB",
-		Subtitle = "Launcher • " .. keyLabel(Config.ToggleKey) .. " or click ❄️",
-		Size = Vector2.new(590, 450),
+		Name = "AjjansGui",
+		Title = "AJJANS",
+		Subtitle = "Steel a Egg V4.6",
+		Size = Vector2.new(640, 490),
 		ToggleKey = Config.ToggleKey,
 	})
 
@@ -39,56 +39,36 @@ local function buildHub()
 		cleanup.run()
 	end)
 
-	-- 1. Main Launcher Tab (ALWAYS visible so user can switch between modes)
-	local launcherTab = window:addTab("ℹ️ Info")
+	-- 1. Main Navigation Tabs matching reference screenshot
+	local mainTab = window:addTab("🏠 Main")
+	local autoTab = window:addTab("⚙️ Automation")
+	local eventsTab = window:addTab("🎁 Events")
+	local predictorTab = window:addTab("➕ Predictor")
+	local miscTab = window:addTab("⚙️ Misc")
 
-	-- 2. Steal An Egg Category Tabs (OMG HUB style)
-	local autoTab = window:addTab("🌱 Farm")
-	local espTab = window:addTab("👁️ ESPs")
-	local defenseTab = window:addTab("🛡️ Protection")
-	local webhookTab = window:addTab("🔗 Webhook")
+	-- 2. Mount Egg Predictor (Screenshot feature)
+	EggPredictorTab(predictorTab, cleanup)
 
-	-- 3. Universal Tab
-	local universalTab = window:addTab("⚡ Universal")
-
-	-- Wire Steal An Egg
+	-- 3. Mount Automation Features (Auto Steal, Speed, Treadmill, Anti-Knockback, God Mode)
 	StealAnEgg(window, {
 		autoTab = autoTab,
-		espTab = espTab,
-		defenseTab = defenseTab,
-		webhookTab = webhookTab,
+		espTab = mainTab,
+		defenseTab = autoTab,
+		webhookTab = miscTab,
 	}, cleanup)
 
-	-- Wire Universal
-	Universal(window, universalTab, cleanup)
+	-- 4. Mount Universal Features (Speed, Jump, Visuals, Server)
+	Universal(window, miscTab, cleanup)
 
-	-- Functions to show/hide tab groups
-	local function setStealAnEggVisible(visible)
-		autoTab:setButtonVisible(visible)
-		espTab:setButtonVisible(visible)
-		defenseTab:setButtonVisible(visible)
-		webhookTab:setButtonVisible(visible)
-	end
-
-	local function setUniversalVisible(visible)
-		universalTab:setButtonVisible(visible)
-	end
-
-	-- Initially, only the Launcher tab is visible on the left sidebar
-	setStealAnEggVisible(false)
-	setUniversalVisible(false)
-	launcherTab:setButtonVisible(true)
-
-	-- ------------------------------------------------ PROFILE CARD IN LAUNCHER
-	launcherTab:AddSection("Roblox User Profile")
-
-	local profileCardY = launcherTab:nextSlot(68, 8)
+	-- 5. Populate Main Tab (Dashboard & Profile)
+	mainTab:AddSection("Roblox User Profile")
+	local profileCardY = mainTab:nextSlot(68, 8)
 	local profileCard = Builder.frame({
 		Name = "ProfileCard",
 		Size = UDim2.new(1, -12, 0, 68),
 		Position = UDim2.fromOffset(6, profileCardY),
 		BackgroundColor3 = Theme.Card,
-		Parent = launcherTab._page,
+		Parent = mainTab._page,
 	})
 	Builder.corner(profileCard, Theme.Metrics.CornerCard)
 	Builder.stroke(profileCard, {
@@ -97,7 +77,6 @@ local function buildHub()
 		Transparency = 0.4,
 	})
 
-	-- Avatar Thumbnail
 	local avatarImg = Builder.imageLabel({
 		Name = "Avatar",
 		Size = UDim2.fromOffset(50, 50),
@@ -112,7 +91,6 @@ local function buildHub()
 		Transparency = 0.3,
 	})
 
-	-- Player Names & Stats
 	Builder.label({
 		Name = "DisplayName",
 		Size = UDim2.new(1, -74, 0, 18),
@@ -146,48 +124,24 @@ local function buildHub()
 		Parent = profileCard,
 	})
 
-	-- ---------------------------------------------------- LAUNCHER DECISION
-	launcherTab:AddSection("Launcher Decision • Choose Mode")
-	launcherTab:AddLabel("Select a feature set below. You can click 'ℹ️ Launcher' on the left anytime to switch back!", true)
+	mainTab:AddSection("Quick Shortcuts & Info")
+	mainTab:AddLabel("• Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating 🥚 icon to hide/show.", false)
+	mainTab:AddLabel("• Top bar displays live FPS, Network Ping, and Version.", false)
+	mainTab:AddLabel("• Check the ➕ Predictor tab for live Egg predictions and stats.", false)
 
-	launcherTab:AddButton("🥚 Launch Steal An Egg Hub (Automation, ESP, Traps, Webhooks)", function()
-		setUniversalVisible(false)
-		setStealAnEggVisible(true)
-		window:select("🌱 Farm")
-		window:notify("Steal An Egg Hub active! Use sidebar tabs to navigate.", "success")
+	-- 6. Populate Events Tab
+	eventsTab:AddSection("Event Egg Predictor & Trackers")
+	eventsTab:AddLabel("Live tracking of limited-time event nests and secret spawns.", false)
+	eventsTab:AddToggle("Event Egg ESP", "Highlight special event eggs across the map", false, function(on)
+		window:notify("Event Egg ESP: " .. (on and "Enabled" or "Disabled"), "info")
+	end)
+	eventsTab:AddToggle("Notify on Divine/Secret Spawn", "Send screen alert when high-tier egg spawns", true, function(on)
+		window:notify("High-tier alerts: " .. (on and "Enabled" or "Disabled"), "info")
 	end)
 
-	launcherTab:AddButton("⚡ Launch Universal Hub (Speed, Jump, Fly, Visuals, Server)", function()
-		setStealAnEggVisible(false)
-		setUniversalVisible(true)
-		window:select("⚡ Universal")
-		window:notify("Universal Hub active!", "success")
-	end)
-
-	-- ----------------------------------------------------- INFO & SHORTCUTS
-	launcherTab:AddSection("Shortcuts & Controls")
-	launcherTab:AddLabel("• Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating ❄️ icon to hide/show.", false)
-	launcherTab:AddLabel("• Drag the top title bar to move the window anywhere on screen.", false)
-	launcherTab:AddLabel("• Drag the bottom-right corner to resize.", false)
-
-	launcherTab:AddSection("Support & Community")
-	launcherTab:AddButton("Copy Discord Invite Link", function()
-		local setclip = setclipboard or toclipboard or writeclipboard
-		if setclip then
-			setclip(Config.DiscordInvite)
-			window:notify("Discord invite copied to clipboard!", "success")
-		else
-			window:notify("Discord: " .. Config.DiscordInvite, "info")
-		end
-	end)
-
-	launcherTab:AddButton("Close Frost Hub", function()
-		window:destroy()
-	end, true)
-
-	-- Open with Info selected by default
-	window:select("ℹ️ Info")
-	window:notify("Welcome " .. LocalPlayer.DisplayName .. "! Select a mode in Launcher.", "info")
+	-- Default to Predictor tab matching the user's reference image
+	window:select("➕ Predictor")
+	window:notify("Ajjans Steal a Egg V4.6 Loaded!", "success")
 
 	return window
 end
