@@ -622,22 +622,131 @@ function Movement:stealEgg(targetEntry)
 	return true
 end
 
--- Auto Farm (Best Eggs Only): Respects minMoneyPerSec, walks at custom speed, recovers if trapped by animal
+-- Exploit Auto-Steal Sequence:
+-- 1. Steal nearest decoy egg
+-- 2. Wait for guard hit / aggro cooldown
+-- 3. Teleport to designated target egg (>= minMoneyPerSec)
+-- 4. Steal target egg
+-- 5. Teleport above guard strike range (Y + 32)
+-- 6. Glide/fly at altitude straight to base safe zone
+function Movement:exploitSteal(target)
+	local hum, root = self:_context()
+	if not hum or not root or hum.Health <= 0 then
+		return false
+	end
+
+	-- Step 1: Find nearest decoy egg to trigger guard alert / swing
+	local decoy = EggData.closest(nil, 0)
+	if decoy and decoy.uid ~= target.uid then
+		-- Teleport to decoy egg
+		pcall(function()
+			root.CFrame = CFrame.new(decoy.position + Vector3.new(0, 2.5, 0))
+		end)
+		task.wait(0.12)
+
+		-- Steal decoy egg
+		self:stealEgg(decoy)
+
+		-- Step 2: Wait for guard hit / alert
+		local startHealth = hum.Health
+		local guardAlertDeadline = os.clock() + 2.5
+		while os.clock() < guardAlertDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+			if hum.Health < startHealth or hum.PlatformStand then
+				break
+			end
+			task.wait(0.05)
+		end
+
+		-- Recover from hit/ragdoll immediately
+		pcall(function()
+			hum.PlatformStand = false
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+		task.wait(0.08)
+	end
+
+	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then
+		return false
+	end
+
+	-- Step 3: Teleport directly to designated target egg (>= minMoneyPerSec)
+	pcall(function()
+		root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
+	end)
+	task.wait(0.12)
+
+	-- Step 4: Steal designated egg
+	print(string.format("[Frost] ⚡ Stealing target egg (%s - %s)!", target.cleanDisplay or target.eggName or "Egg", EggData.formatMoney(target.moneyPerSec)))
+	self:stealEgg(target)
+	task.wait(0.12)
+
+	-- Step 5: Teleport vertically above guard strike reach (Y + 32 studs)
+	local highY = root.Position.Y + 32
+	pcall(function()
+		root.CFrame = CFrame.new(root.Position.X, highY, root.Position.Z)
+	end)
+	task.wait(0.08)
+
+	-- Step 6: Fly/glide straight to base deposit safe zone
+	local basePos = self:findBasePosition()
+	if basePos then
+		local startPos = root.Position
+		local targetAirPos = Vector3.new(basePos.X, highY, basePos.Z)
+		local dist = (Vector3.new(targetAirPos.X, 0, targetAirPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+		local speed = math.clamp(self.customSpeed or 60, 35, 300)
+		local duration = math.clamp(dist / speed, 0.35, 6)
+		local startTime = os.clock()
+
+		local bv = nil
+		pcall(function()
+			bv = Instance.new("BodyVelocity")
+			bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+			bv.Velocity = Vector3.zero
+			bv.Parent = root
+		end)
+
+		while os.clock() - startTime < duration and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+			local alpha = math.clamp((os.clock() - startTime) / duration, 0, 1)
+			local curPos = startPos:Lerp(targetAirPos, alpha)
+			pcall(function()
+				root.CFrame = CFrame.new(curPos)
+			end)
+			task.wait()
+		end
+
+		if bv then
+			pcall(function() bv:Destroy() end)
+		end
+
+		-- Descend safely to deposit pad in base
+		pcall(function()
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.CFrame = CFrame.new(basePos + Vector3.new(0, 3, 0))
+		end)
+		task.wait(0.2)
+	end
+
+	self:logEggStolen(target)
+	return true
+end
+
+-- Auto Farm (Best Eggs Only): Respects minMoneyPerSec, exploit steal & spawn wait
 function Movement:toggleAutoFarmBest(enabled)
 	if not enabled then
 		self.autoFarmBestRunning = false
 		local hum = Util.getHumanoid()
 		if hum then hum.WalkSpeed = 16 end
-		self.notify("Auto Farm (Best) stopped", "info")
+		self.notify("Auto Steal stopped", "info")
 		return
 	end
 
 	self.autoFarmAllRunning = false
 	self.autoFarmBestRunning = true
 	self:neutralizeAntiCheat()
-	self.notify(string.format("Auto Farm (Best) active • Speed %d • Min: %s", self.customSpeed, EggData.formatMoney(self.minMoneyPerSec)), "success")
+	self.notify(string.format("Auto Steal active • Min: %s • Speed %d", EggData.formatMoney(self.minMoneyPerSec), self.customSpeed), "success")
 
 	Util.spawn(function()
+		local waitingAtSpawn = false
 		while self.autoFarmBestRunning do
 			-- Wait for a live character before doing anything
 			if not self:_waitForCharacter(8) then
@@ -654,62 +763,48 @@ function Movement:toggleAutoFarmBest(enabled)
 			-- After respawn, move to safe centre so we don't walk into walls
 			self:_handleRespawn()
 
-			-- 1. Find best egg meeting minimum money threshold
+			-- 1. Find best egg meeting minimum money threshold (e.g. >= 1M/s)
 			local target = EggData.bestValue(self.minMoneyPerSec)
 			if not target then
+				-- No eggs meeting the threshold currently on the map: keep player at spawn
+				local basePos = self:findBasePosition()
+				if basePos then
+					local distToBase = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(basePos.X, 0, basePos.Z)).Magnitude
+					if distToBase > 15 then
+						pcall(function()
+							root.CFrame = CFrame.new(basePos + Vector3.new(0, 3, 0))
+						end)
+					end
+				end
+
+				if not waitingAtSpawn then
+					waitingAtSpawn = true
+					if self.minMoneyPerSec > 0 then
+						self.notify(string.format("Waiting at spawn for eggs >= %s to respawn...", EggData.formatMoney(self.minMoneyPerSec)), "info")
+					else
+						self.notify("Waiting at spawn for eggs to spawn...", "info")
+					end
+				end
+
 				task.wait(1.5)
 				continue
 			end
 
-			-- 2. Walk to egg (PathfindingService wall avoidance)
-			local reached, reason = self:safeWalkTo(target.position, 20)
-			if not self.autoFarmBestRunning then break end
-			if reason == "trapped" then
-				continue
+			-- Target found! Reset spawn wait flag
+			waitingAtSpawn = false
+
+			-- 2. Execute exploit steal sequence
+			local ok = self:exploitSteal(target)
+			if not ok then
+				task.wait(0.5)
+			else
+				task.wait(0.3)
 			end
-
-			-- 3. Only steal if we actually arrived close enough
-			local curRoot = Util.getRootPart()
-			if curRoot then
-				local dist = (Vector3.new(target.position.X, 0, target.position.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
-				if dist > 10 then
-					-- Didn't get close enough – retry next cycle
-					task.wait(0.5)
-					continue
-				end
-			end
-
-			-- 4. Steal egg (hold E / fire carry remote)
-			print(string.format("[Frost] ⚡ Grabbing egg (%s) — sprinting to base!", target.cleanDisplay or target.eggName or "Egg"))
-			self:stealEgg(target)
-			task.wait(0.12)
-
-			-- 5. Walk back to player's base plot to deposit (with initial escape burst away from guard)
-			local basePos = self:findBasePosition()
-			if curRoot and basePos then
-				local awayDir = Vector3.new(basePos.X - curRoot.Position.X, 0, basePos.Z - curRoot.Position.Z)
-				if awayDir.Magnitude > 1 then
-					curRoot.AssemblyLinearVelocity = awayDir.Unit * (self.customSpeed or 60)
-				end
-			end
-
-			local deposited, depReason = self:safeWalkTo(basePos, 22)
-			if not self.autoFarmBestRunning then break end
-			if not deposited and depReason == "trapped" then
-				self.notify("Animal attacked during delivery! Waiting...", "warning")
-				while self:isTrapped() and self.autoFarmBestRunning do
-					task.wait(0.5)
-				end
-				continue
-			end
-
-			self:logEggStolen(target)
-			task.wait(0.4)
 		end
 	end)
 end
 
--- Auto Farm (All Eggs Nearest-First): Respects minMoneyPerSec, walks at custom speed, recovers if trapped
+-- Auto Farm (All Eggs Nearest-First): Respects minMoneyPerSec, exploit steal & spawn wait
 function Movement:toggleAutoFarmAll(enabled)
 	if not enabled then
 		self.autoFarmAllRunning = false
@@ -722,9 +817,10 @@ function Movement:toggleAutoFarmAll(enabled)
 	self.autoFarmBestRunning = false
 	self.autoFarmAllRunning = true
 	self:neutralizeAntiCheat()
-	self.notify(string.format("Auto Farm (All) active • Speed %d • Min: %s", self.customSpeed, EggData.formatMoney(self.minMoneyPerSec)), "success")
+	self.notify(string.format("Auto Farm (All) active • Min: %s • Speed %d", EggData.formatMoney(self.minMoneyPerSec), self.customSpeed), "success")
 
 	Util.spawn(function()
+		local waitingAtSpawn = false
 		while self.autoFarmAllRunning do
 			-- Wait for a live character before doing anything
 			if not self:_waitForCharacter(8) then
@@ -743,53 +839,37 @@ function Movement:toggleAutoFarmAll(enabled)
 
 			local target = EggData.closest(nil, self.minMoneyPerSec)
 			if not target then
+				local basePos = self:findBasePosition()
+				if basePos then
+					local distToBase = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(basePos.X, 0, basePos.Z)).Magnitude
+					if distToBase > 15 then
+						pcall(function()
+							root.CFrame = CFrame.new(basePos + Vector3.new(0, 3, 0))
+						end)
+					end
+				end
+
+				if not waitingAtSpawn then
+					waitingAtSpawn = true
+					if self.minMoneyPerSec > 0 then
+						self.notify(string.format("Waiting at spawn for eggs >= %s to respawn...", EggData.formatMoney(self.minMoneyPerSec)), "info")
+					else
+						self.notify("Waiting at spawn for eggs to spawn...", "info")
+					end
+				end
+
 				task.wait(1.5)
 				continue
 			end
 
-			-- 1. Walk to egg (PathfindingService wall avoidance)
-			local reached, reason = self:safeWalkTo(target.position, 18)
-			if not self.autoFarmAllRunning then break end
-			if reason == "trapped" then
-				continue
+			waitingAtSpawn = false
+
+			local ok = self:exploitSteal(target)
+			if not ok then
+				task.wait(0.5)
+			else
+				task.wait(0.3)
 			end
-
-			-- 2. Only steal if we actually arrived close enough
-			local curRoot = Util.getRootPart()
-			if curRoot then
-				local dist = (Vector3.new(target.position.X, 0, target.position.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
-				if dist > 10 then
-					task.wait(0.5)
-					continue
-				end
-			end
-
-			-- 3. Steal egg (hold E / fire carry remote)
-			print(string.format("[Frost] ⚡ Grabbing egg (%s) — sprinting to base!", target.cleanDisplay or target.eggName or "Egg"))
-			self:stealEgg(target)
-			task.wait(0.12)
-
-			-- 4. Walk to base to deposit (with initial escape burst away from guard)
-			local basePos = self:findBasePosition()
-			if curRoot and basePos then
-				local awayDir = Vector3.new(basePos.X - curRoot.Position.X, 0, basePos.Z - curRoot.Position.Z)
-				if awayDir.Magnitude > 1 then
-					curRoot.AssemblyLinearVelocity = awayDir.Unit * (self.customSpeed or 60)
-				end
-			end
-
-			local deposited, depReason = self:safeWalkTo(basePos, 20)
-			if not self.autoFarmAllRunning then break end
-			if not deposited and depReason == "trapped" then
-				self.notify("Animal attacked during delivery! Waiting...", "warning")
-				while self:isTrapped() and self.autoFarmAllRunning do
-					task.wait(0.5)
-				end
-				continue
-			end
-
-			self:logEggStolen(target)
-			task.wait(0.4)
 		end
 	end)
 end
