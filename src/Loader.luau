@@ -60,9 +60,10 @@ local function looksLikeErrorPage(body)
 	if type(body) ~= "string" or #body == 0 then
 		return true
 	end
-	local head = string.lower(string.sub(body, 1, 40))
+	local head = string.lower(string.sub(body, 1, 60))
 	return string.find(head, "<!doctype", 1, true) ~= nil
 		or string.find(head, "<html", 1, true) ~= nil
+		or string.find(head, "404", 1, true) ~= nil
 end
 
 local function serviceRequest(url)
