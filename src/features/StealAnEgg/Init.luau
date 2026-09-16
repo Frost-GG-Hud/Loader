@@ -144,6 +144,45 @@ return function(hub, tabs, cleanup)
 		}
 	)
 
+	mainTab:AddSection("🚀 Auto Steal Movement System")
+	mainTab:AddLabel("Choose movement method for Auto Steal (Tween, Walk, Exploit, etc):", false)
+
+	mainTab:AddDropdown(
+		"Movement Method",
+		{ "Tween", "Walk (Pathfinding)", "Ragdoll Exploit", "CFrame Glide", "Instant Teleport" },
+		"Tween",
+		function(selected)
+			movement:setMovementMode(selected)
+		end
+	)
+
+	mainTab:AddSlider("Tween / Glide Speed (studs/s)", 15, 150, 45, function(value)
+		movement:setTweenSpeed(value)
+	end, 1)
+
+	mainTab:AddSlider("Flight / Elevation Offset (studs)", 0, 60, 0, function(value)
+		movement:setElevation(value)
+	end, 1)
+
+	mainTab:AddToggleGrid(
+		{
+			title = "Noclip In Transit",
+			desc = "Glide through walls & obstacles",
+			default = true,
+			onChange = function(on)
+				movement:toggleMovementNoclip(on)
+			end,
+		},
+		{
+			title = "Return To Base",
+			desc = "Auto deposit stolen eggs at plot",
+			default = true,
+			onChange = function(on)
+				movement:toggleReturnToBase(on)
+			end,
+		}
+	)
+
 	mainTab:AddSection("Movement Speed & Bypass")
 
 	mainTab:AddSlider("Movement Speed (16 - 150)", 16, 150, 28, function(value)
@@ -208,7 +247,48 @@ return function(hub, tabs, cleanup)
 		notify("Cleared all ESP highlights", "info")
 	end, true)
 
-	-- --------------------------------------------------- PROTECTION
+	-- --------------------------------------------------- PROTECTION & AUTOMATION
+	if autoTab and autoTab ~= mainTab then
+		autoTab:AddSection("🚀 Auto Steal Movement System")
+		autoTab:AddLabel("Choose movement method for Auto Steal (Tween, Walk, Exploit, etc):", false)
+
+		autoTab:AddDropdown(
+			"Movement Method",
+			{ "Tween", "Walk (Pathfinding)", "Ragdoll Exploit", "CFrame Glide", "Instant Teleport" },
+			"Tween",
+			function(selected)
+				movement:setMovementMode(selected)
+			end
+		)
+
+		autoTab:AddSlider("Tween / Glide Speed (studs/s)", 15, 150, 45, function(value)
+			movement:setTweenSpeed(value)
+		end, 1)
+
+		autoTab:AddSlider("Flight / Elevation Offset (studs)", 0, 60, 0, function(value)
+			movement:setElevation(value)
+		end, 1)
+
+		autoTab:AddToggleGrid(
+			{
+				title = "Noclip In Transit",
+				desc = "Glide through walls & obstacles",
+				default = true,
+				onChange = function(on)
+					movement:toggleMovementNoclip(on)
+				end,
+			},
+			{
+				title = "Return To Base",
+				desc = "Auto deposit stolen eggs at plot",
+				default = true,
+				onChange = function(on)
+					movement:toggleReturnToBase(on)
+				end,
+			}
+		)
+	end
+
 	defenseTab:AddSection("Protection & Bypasses")
 
 	defenseTab:AddToggleGrid(
