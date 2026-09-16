@@ -602,7 +602,92 @@ function Movement:safeWalkTo(targetPos, timeoutSeconds)
 	return false
 end
 
--- -- Steals an egg by directly invoking RF/EggWorld/AskFieldEggCarry and triggering ProximityPrompt
+-- Searches for any egg-related ProximityPrompt near a position
+function Movement:findNearbyPrompt(pos, maxDist)
+	maxDist = maxDist or 25
+	local bestPrompt = nil
+	local bestDist = maxDist
+
+	-- 1. Check workspace AreaEggSlotsClient if present
+	local clientFolder = workspace:FindFirstChild("AreaEggSlotsClient")
+	if clientFolder then
+		for _, child in ipairs(clientFolder:GetChildren()) do
+			local p = child:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if p and p.Parent and p.Parent:IsA("BasePart") then
+				local d = (p.Parent.Position - pos).Magnitude
+				if d < bestDist then
+					bestDist = d
+					bestPrompt = p
+				end
+			end
+		end
+	end
+
+	-- 2. Scan workspace descendants for ProximityPrompts near pos
+	pcall(function()
+		for _, desc in ipairs(workspace:GetDescendants()) do
+			local ok, isPP = pcall(function() return typeof(desc) == "Instance" and desc:IsA("ProximityPrompt") end)
+			if ok and isPP then
+				local promptPart = desc.Parent
+				if promptPart and typeof(promptPart) == "Instance" and promptPart:IsA("BasePart") then
+					local dist = (promptPart.Position - pos).Magnitude
+					if dist < bestDist then
+						local action = tostring(desc.ActionText or "")
+						local name = tostring(desc.Name or "")
+						local isEggAction = string.find(string.lower(action), "steal", 1, true)
+							or string.find(string.lower(action), "take", 1, true)
+							or string.find(string.lower(action), "grab", 1, true)
+							or string.find(string.lower(name), "egg", 1, true)
+							or string.find(string.lower(name), "carry", 1, true)
+						if isEggAction then
+							bestDist = dist
+							bestPrompt = desc
+						elseif not bestPrompt then
+							bestPrompt = desc
+							bestDist = dist
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	return bestPrompt
+end
+
+-- Triggers a ProximityPrompt bypassing client-side limitations
+function Movement:triggerPrompt(prompt)
+	if not prompt or typeof(prompt) ~= "Instance" or not prompt:IsA("ProximityPrompt") then
+		return false
+	end
+
+	pcall(function()
+		prompt.RequiresLineOfSight = false
+		prompt.MaxActivationDistance = 60
+	end)
+
+	if fireproximityprompt then
+		pcall(function() fireproximityprompt(prompt, 0, true) end)
+		pcall(function() fireproximityprompt(prompt, 0) end)
+		pcall(function() fireproximityprompt(prompt) end)
+	end
+
+	-- Client-side instant hold bypass: setting HoldDuration = 0 triggers prompt instantly on InputHoldBegin
+	pcall(function()
+		local origHold = prompt.HoldDuration
+		prompt.HoldDuration = 0
+		prompt:InputHoldBegin()
+		task.wait(0.06)
+		prompt:InputHoldEnd()
+		task.delay(0.5, function()
+			pcall(function() prompt.HoldDuration = origHold end)
+		end)
+	end)
+
+	return true
+end
+
+-- Steals an egg by invoking remotes and triggering the ProximityPrompt
 function Movement:stealEgg(targetEntry)
 	local _, root = self:_context()
 	if not root or not targetEntry then
@@ -615,7 +700,7 @@ function Movement:stealEgg(targetEntry)
 		or nil
 	local slotKey = targetEntry.slotKey
 
-	-- 1. Direct invocation of RF/EggWorld/AskFieldEggCarry
+	-- 1. Networking remotes invocation
 	pcall(function()
 		local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
 		if networking then
@@ -630,32 +715,45 @@ function Movement:stealEgg(targetEntry)
 					pcall(function() rfCarry:InvokeServer(eggModel) end)
 				end
 			end
+
+			-- Also search any other remotes with carry/steal in their name
+			for _, child in ipairs(networking:GetChildren()) do
+				local cName = string.lower(child.Name)
+				if string.find(cName, "carry", 1, true) or string.find(cName, "steal", 1, true) or string.find(cName, "fieldegg", 1, true) then
+					if child:IsA("RemoteFunction") then
+						pcall(function() child:InvokeServer(eggUid) end)
+						if slotKey then pcall(function() child:InvokeServer(eggUid, slotKey) end) end
+					elseif child:IsA("RemoteEvent") then
+						pcall(function() child:FireServer(eggUid) end)
+						if slotKey then pcall(function() child:FireServer(eggUid, slotKey) end) end
+					end
+				end
+			end
 		end
 	end)
 
-	-- 2. Fast ProximityPrompt trigger
+	-- 2. ProximityPrompt trigger
 	local prompt = targetEntry.prompt
-	if not prompt and eggModel and typeof(eggModel) == "Instance" then
-		prompt = EggData.getPrompt(eggModel)
+	if not prompt or typeof(prompt) ~= "Instance" or not prompt.Parent then
+		if eggModel and typeof(eggModel) == "Instance" then
+			prompt = EggData.getPrompt(eggModel)
+		end
 	end
-	if not prompt and typeof(targetEntry.instance) == "Instance" then
-		prompt = EggData.getPrompt(targetEntry.instance)
+	if not prompt or typeof(prompt) ~= "Instance" or not prompt.Parent then
+		if typeof(targetEntry.instance) == "Instance" then
+			prompt = EggData.getPrompt(targetEntry.instance)
+		end
+	end
+	if not prompt or typeof(prompt) ~= "Instance" or not prompt.Parent then
+		-- Search near the character's arrival position
+		prompt = self:findNearbyPrompt(root.Position, 25)
 	end
 
 	if prompt and typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") then
-		if fireproximityprompt then
-			pcall(fireproximityprompt, prompt, 0, true)
-		end
-
-		pcall(function()
-			prompt:InputHoldBegin()
-			task.wait(0.12)
-			prompt:InputHoldEnd()
-		end)
-	else
-		task.wait(0.15)
+		self:triggerPrompt(prompt)
 	end
 
+	-- 3. Game module direct call
 	if eggStateModule and eggStateModule.CarryFieldEgg and eggUid then
 		pcall(function()
 			eggStateModule.CarryFieldEgg(eggUid, slotKey)
@@ -669,27 +767,68 @@ function Movement:isCarryingEgg()
 	local char = LocalPlayer.Character
 	if not char then return false end
 
+	-- 1. Check tools/models in Character
 	for _, child in ipairs(char:GetChildren()) do
 		if child:IsA("Tool") or string.find(string.lower(child.Name), "egg", 1, true) then
 			return true
 		end
 	end
 
-	if char:GetAttribute("Carrying") or char:GetAttribute("CarryingEgg") or char:GetAttribute("HasEgg") then
-		return true
-	end
-	if LocalPlayer:GetAttribute("Carrying") or LocalPlayer:GetAttribute("CarryingEgg") or LocalPlayer:GetAttribute("HasEgg") then
-		return true
+	-- 2. Check Backpack
+	local backpack = LocalPlayer:FindFirstChild("Backpack")
+	if backpack then
+		for _, item in ipairs(backpack:GetChildren()) do
+			if item:IsA("Tool") or string.find(string.lower(item.Name), "egg", 1, true) then
+				return true
+			end
+		end
 	end
 
-	if eggStateModule then
-		if type(eggStateModule.IsCarryingEgg) == "function" then
-			local ok, res = pcall(eggStateModule.IsCarryingEgg)
-			if ok and res then return true end
+	-- 3. Check character attributes
+	for k, v in pairs(char:GetAttributes()) do
+		local lowerK = string.lower(tostring(k))
+		if (string.find(lowerK, "carry", 1, true) or string.find(lowerK, "egg", 1, true) or string.find(lowerK, "holding", 1, true)) and v ~= false and v ~= nil and v ~= 0 and v ~= "" then
+			return true
 		end
-		if type(eggStateModule.GetCarriedEgg) == "function" then
-			local ok, res = pcall(eggStateModule.GetCarriedEgg)
-			if ok and res ~= nil then return true end
+	end
+
+	-- 4. Check player attributes
+	for k, v in pairs(LocalPlayer:GetAttributes()) do
+		local lowerK = string.lower(tostring(k))
+		if (string.find(lowerK, "carry", 1, true) or string.find(lowerK, "egg", 1, true) or string.find(lowerK, "holding", 1, true)) and v ~= false and v ~= nil and v ~= 0 and v ~= "" then
+			return true
+		end
+	end
+
+	-- 5. Check EggState game module
+	if eggStateModule then
+		for _, fnName in ipairs({ "IsCarryingEgg", "GetCarriedEgg", "GetCarryingEgg", "IsCarrying", "ReadCarriedEgg" }) do
+			if type(eggStateModule[fnName]) == "function" then
+				local ok, res = pcall(eggStateModule[fnName])
+				if ok and res ~= nil and res ~= false then
+					return true
+				end
+			end
+		end
+	end
+
+	-- 6. Check for welded parts/models attached to limbs
+	for _, partName in ipairs({ "Head", "UpperTorso", "Torso", "RightHand", "LeftHand" }) do
+		local limb = char:FindFirstChild(partName)
+		if limb then
+			for _, joint in ipairs(limb:GetChildren()) do
+				if joint:IsA("Weld") or joint:IsA("WeldConstraint") or joint:IsA("Motor6D") then
+					local part0 = joint.Part0
+					local part1 = joint.Part1
+					local otherPart = (part0 == limb and part1) or part0
+					if otherPart and otherPart ~= limb and not otherPart:IsDescendantOf(char) then
+						return true
+					end
+					if otherPart and string.find(string.lower(otherPart.Name), "egg", 1, true) then
+						return true
+					end
+				end
+			end
 		end
 	end
 
@@ -805,13 +944,23 @@ function Movement:exploitSteal(target)
 	end
 
 	-- Confirm carried egg
-	local targetCarryDeadline = os.clock() + 0.8
+	local collected = false
+	local targetCarryDeadline = os.clock() + 2.5
 	while os.clock() < targetCarryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 		if self:isCarryingEgg() then
+			collected = true
 			break
 		end
-		task.wait(0.03)
+		self:stealEgg(target)
+		task.wait(0.2)
 	end
+
+	if not collected then
+		self.notify(string.format("⚠️ Missed %s (taken or prompt failed). Skipping...", target.eggName or target.petName or "Egg"), "warning")
+		return false
+	end
+
+	self.notify(string.format("🥚 Collected %s! Returning to base...", target.eggName or target.petName or "Egg"), "success")
 
 	-- Step 5: Teleport 50 studs above ground (Y + 50) completely clear of boss attack cylinder
 	local highY = root.Position.Y + 50
@@ -977,35 +1126,52 @@ function Movement:tweenSteal(target)
 		if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
 	end
 
-	self:tweenTo(eggPos + Vector3.new(0, 2, 0), self.tweenSpeed)
+	self:tweenTo(eggPos + Vector3.new(0, 1.5, 0), self.tweenSpeed)
 	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
 
-	self:stealEgg(target)
-
-	local carryDeadline = os.clock() + 0.8
-	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+	-- Try stealing with prompt discovery and retries
+	local collected = false
+	local deadline = os.clock() + 3.0
+	while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		self:stealEgg(target)
+		task.wait(0.2)
 		if self:isCarryingEgg() then
+			collected = true
 			break
 		end
-		task.wait(0.04)
 	end
 
-	if self.returnToBase then
-		local basePos = self:findBasePosition()
-		if basePos then
-			if self.movementElevation and self.movementElevation > 0 then
-				local highBase = Vector3.new(basePos.X, math.max(eggPos.Y, basePos.Y) + self.movementElevation, basePos.Z)
-				self:tweenTo(highBase, self.tweenSpeed)
-				if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+	if collected then
+		self.notify(string.format("🥚 Collected %s! Returning to base...", target.eggName or target.petName or "Egg"), "success")
+		if self.returnToBase then
+			local basePos = self:findBasePosition()
+			if basePos then
+				if self.movementElevation and self.movementElevation > 0 then
+					local highBase = Vector3.new(basePos.X, math.max(eggPos.Y, basePos.Y) + self.movementElevation, basePos.Z)
+					self:tweenTo(highBase, self.tweenSpeed)
+					if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
+				end
+
+				self:tweenTo(basePos + Vector3.new(0, 0.5, 0), self.tweenSpeed)
+
+				local depositPrompt = self:findNearbyPrompt(basePos, 15)
+				if depositPrompt then
+					self:triggerPrompt(depositPrompt)
+				end
+
+				local depDeadline = os.clock() + 1.8
+				while os.clock() < depDeadline and self:isCarryingEgg() and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+					task.wait(0.1)
+				end
 			end
-
-			self:tweenTo(basePos + Vector3.new(0, 3, 0), self.tweenSpeed)
-			task.wait(0.2)
 		end
-	end
 
-	self:logEggStolen(target)
-	return true
+		self:logEggStolen(target)
+		return true
+	else
+		self.notify(string.format("⚠️ Missed %s (taken or prompt failed). Skipping...", target.eggName or target.petName or "Egg"), "warning")
+		return false
+	end
 end
 
 function Movement:walkSteal(target)
@@ -1024,26 +1190,42 @@ function Movement:walkSteal(target)
 		return false
 	end
 
-	self:stealEgg(target)
-
-	local carryDeadline = os.clock() + 0.8
-	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+	local collected = false
+	local deadline = os.clock() + 3.0
+	while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		self:stealEgg(target)
+		task.wait(0.2)
 		if self:isCarryingEgg() then
+			collected = true
 			break
 		end
-		task.wait(0.05)
 	end
 
-	if self.returnToBase then
-		local basePos = self:findBasePosition()
-		if basePos then
-			self:safeWalkTo(basePos, 25)
-			task.wait(0.2)
+	if collected then
+		self.notify(string.format("🥚 Collected %s! Returning to base...", target.eggName or target.petName or "Egg"), "success")
+		if self.returnToBase then
+			local basePos = self:findBasePosition()
+			if basePos then
+				self:safeWalkTo(basePos, 25)
+
+				local depositPrompt = self:findNearbyPrompt(basePos, 15)
+				if depositPrompt then
+					self:triggerPrompt(depositPrompt)
+				end
+
+				local depDeadline = os.clock() + 1.8
+				while os.clock() < depDeadline and self:isCarryingEgg() and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+					task.wait(0.1)
+				end
+			end
 		end
-	end
 
-	self:logEggStolen(target)
-	return true
+		self:logEggStolen(target)
+		return true
+	else
+		self.notify(string.format("⚠️ Missed %s (taken or prompt failed). Skipping...", target.eggName or target.petName or "Egg"), "warning")
+		return false
+	end
 end
 
 function Movement:glideSteal(target)
@@ -1094,30 +1276,48 @@ function Movement:glideSteal(target)
 	if self.movementElevation and self.movementElevation > 0 then
 		glideTo(Vector3.new(eggPos.X, math.max(root.Position.Y, eggPos.Y) + self.movementElevation, eggPos.Z), 10)
 	end
-	glideTo(eggPos + Vector3.new(0, 2, 0), 10)
+	glideTo(eggPos + Vector3.new(0, 1.5, 0), 10)
 	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then return false end
 
-	self:stealEgg(target)
-
-	local carryDeadline = os.clock() + 0.8
-	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
-		if self:isCarryingEgg() then break end
-		task.wait(0.04)
-	end
-
-	if self.returnToBase then
-		local basePos = self:findBasePosition()
-		if basePos then
-			if self.movementElevation and self.movementElevation > 0 then
-				glideTo(Vector3.new(basePos.X, math.max(eggPos.Y, basePos.Y) + self.movementElevation, basePos.Z), 10)
-			end
-			glideTo(basePos + Vector3.new(0, 3, 0), 10)
-			task.wait(0.2)
+	local collected = false
+	local deadline = os.clock() + 3.0
+	while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		self:stealEgg(target)
+		task.wait(0.2)
+		if self:isCarryingEgg() then
+			collected = true
+			break
 		end
 	end
 
-	self:logEggStolen(target)
-	return true
+	if collected then
+		self.notify(string.format("🥚 Collected %s! Returning to base...", target.eggName or target.petName or "Egg"), "success")
+		if self.returnToBase then
+			local basePos = self:findBasePosition()
+			if basePos then
+				if self.movementElevation and self.movementElevation > 0 then
+					glideTo(Vector3.new(basePos.X, math.max(eggPos.Y, basePos.Y) + self.movementElevation, basePos.Z), 10)
+				end
+				glideTo(basePos + Vector3.new(0, 0.5, 0), 10)
+
+				local depositPrompt = self:findNearbyPrompt(basePos, 15)
+				if depositPrompt then
+					self:triggerPrompt(depositPrompt)
+				end
+
+				local depDeadline = os.clock() + 1.8
+				while os.clock() < depDeadline and self:isCarryingEgg() and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+					task.wait(0.1)
+				end
+			end
+		end
+
+		self:logEggStolen(target)
+		return true
+	else
+		self.notify(string.format("⚠️ Missed %s (taken or prompt failed). Skipping...", target.eggName or target.petName or "Egg"), "warning")
+		return false
+	end
 end
 
 function Movement:instantTeleportSteal(target)
@@ -1127,28 +1327,46 @@ function Movement:instantTeleportSteal(target)
 	end
 
 	local char = LocalPlayer.Character
-	local targetCF = CFrame.new(target.position + Vector3.new(0, 2, 0))
+	local targetCF = CFrame.new(target.position + Vector3.new(0, 1.5, 0))
 	teleportCharacter(char, targetCF)
 	task.wait(0.08)
 
-	self:stealEgg(target)
-
-	local carryDeadline = os.clock() + 0.8
-	while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
-		if self:isCarryingEgg() then break end
-		task.wait(0.04)
-	end
-
-	if self.returnToBase then
-		local basePos = self:findBasePosition()
-		if basePos then
-			teleportCharacter(char, CFrame.new(basePos + Vector3.new(0, 3, 0)))
-			task.wait(0.15)
+	local collected = false
+	local deadline = os.clock() + 3.0
+	while os.clock() < deadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+		self:stealEgg(target)
+		task.wait(0.2)
+		if self:isCarryingEgg() then
+			collected = true
+			break
 		end
 	end
 
-	self:logEggStolen(target)
-	return true
+	if collected then
+		self.notify(string.format("🥚 Collected %s! Returning to base...", target.eggName or target.petName or "Egg"), "success")
+		if self.returnToBase then
+			local basePos = self:findBasePosition()
+			if basePos then
+				teleportCharacter(char, CFrame.new(basePos + Vector3.new(0, 0.5, 0)))
+
+				local depositPrompt = self:findNearbyPrompt(basePos, 15)
+				if depositPrompt then
+					self:triggerPrompt(depositPrompt)
+				end
+
+				local depDeadline = os.clock() + 1.8
+				while os.clock() < depDeadline and self:isCarryingEgg() and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
+					task.wait(0.1)
+				end
+			end
+		end
+
+		self:logEggStolen(target)
+		return true
+	else
+		self.notify(string.format("⚠️ Missed %s (taken or prompt failed). Skipping...", target.eggName or target.petName or "Egg"), "warning")
+		return false
+	end
 end
 
 function Movement:executeAutoSteal(target)
@@ -1838,6 +2056,15 @@ function Movement:dumpDiagnostics()
 		print("--- Player Character Attributes ---")
 		for k, v in pairs(char:GetAttributes()) do
 			print(string.format("  Attribute: %s = %s", tostring(k), tostring(v)))
+		end
+	end
+
+	print("--- Carried Egg Status ---")
+	print(string.format("  isCarryingEgg(): %s", tostring(self:isCarryingEgg())))
+	if eggStateModule then
+		print("--- EggState Module Members ---")
+		for k, v in pairs(eggStateModule) do
+			print(string.format("  [%s] %s", type(v), tostring(k)))
 		end
 	end
 	print("==========================================================")
