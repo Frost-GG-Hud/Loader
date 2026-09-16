@@ -286,10 +286,7 @@ function Window:_buildFloatingToggle()
 		Position = UDim2.new(0, 16, 0.45, 0),
 		BackgroundColor3 = Theme.Window,
 		BackgroundTransparency = 0.15,
-		Text = "🥚",
-		TextSize = 18,
-		Font = Theme.FontBold,
-		TextColor3 = Theme.White,
+		Text = "",
 		AutoButtonColor = false,
 		Active = true,
 		Draggable = true,
@@ -301,6 +298,17 @@ function Window:_buildFloatingToggle()
 		Color = self.accent,
 		Thickness = 2,
 		Transparency = 0.25,
+	})
+
+	local floatIcon = Builder.imageLabel({
+		Name = "Icon",
+		Size = UDim2.fromOffset(22, 22),
+		Position = UDim2.fromOffset(9, 9),
+		Image = "rbxassetid://7734058499",
+		ImageColor3 = self.accent,
+		BackgroundTransparency = 1,
+		ZIndex = 51,
+		Parent = floatBtn,
 	})
 
 	floatBtn.MouseButton1Click:Connect(function()
@@ -372,11 +380,12 @@ function Window:_watchViewport()
 	end))
 end
 
-function Window:addTab(name)
+function Window:addTab(name, icon)
 	self.tabCount = self.tabCount + 1
 
 	local tab = Tab.new({
 		name = name,
+		icon = icon,
 		index = self.tabCount,
 		buttonParent = self.tabList,
 		pageParent = self.content,
