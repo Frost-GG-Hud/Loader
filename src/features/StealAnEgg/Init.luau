@@ -35,16 +35,16 @@ return function(hub, tabs, cleanup)
 	cleanup.track(teardown)
 
 	-- ------------------------------------------------------------- MAIN TAB (ACTIONS & CONTROLS)
-	mainTab:AddButton("⚡ Apply Safe Speed (35) [No Rubberband] >", function()
-		movement:setSpeed(35)
+	mainTab:AddButton("⚡ Apply Optimal Speed (28) [Zero Rubberband] >", function()
+		movement:setSpeed(28)
 		movement:toggleSpeedBypass(true)
-		notify("Applied safe speed: 35 (never rubberbands)", "success")
+		notify("Applied optimal speed: 28 (zero rubberband, beats guards)", "success")
 	end)
 
-	mainTab:AddButton("🏃 Fast Speed Bypass (55) [Smooth CFrame] >", function()
-		movement:setSpeed(55)
+	mainTab:AddButton("🏃 Safe Fast Speed (34) [No Rubberband] >", function()
+		movement:setSpeed(34)
 		movement:toggleSpeedBypass(true)
-		notify("Applied fast bypass speed: 55", "success")
+		notify("Applied safe fast speed: 34", "success")
 	end)
 
 	mainTab:AddButton("🛑 Stop All Automation & Reset Speed", function()
@@ -126,11 +126,11 @@ return function(hub, tabs, cleanup)
 	mainTab:AddInputGrid(
 		{
 			title = "Speed",
-			desc = "Speed level 1 - 1000",
-			placeholder = "60",
-			default = "60",
+			desc = "Safe 28-34, fast 35+",
+			placeholder = "28",
+			default = "28",
 			onChange = function(val)
-				movement:setSpeed(tonumber(val) or 60)
+				movement:setSpeed(tonumber(val) or 28)
 			end,
 		},
 		{
@@ -146,7 +146,7 @@ return function(hub, tabs, cleanup)
 
 	mainTab:AddSection("Movement Speed & Bypass")
 
-	mainTab:AddSlider("Movement Speed (16 - 150)", 16, 150, 35, function(value)
+	mainTab:AddSlider("Movement Speed (16 - 150)", 16, 150, 28, function(value)
 		movement:setSpeed(value)
 	end, 1)
 
