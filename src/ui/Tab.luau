@@ -14,6 +14,41 @@ local BOTTOM_PADDING = 12
 local Tab = {}
 Tab.__index = Tab
 
+local TAB_ICONS = {
+	["main"] = "rbxassetid://7733960981",       -- Home
+	["auto"] = "rbxassetid://7734053495",       -- Sliders / Automation
+	["event"] = "rbxassetid://7733942651",      -- Gift / Events
+	["predict"] = "rbxassetid://7734058499",    -- Sparkle / Predictor
+	["misc"] = "rbxassetid://7734053426",       -- Cog / Settings
+	["farm"] = "rbxassetid://7734053495",       -- Farm
+	["esp"] = "rbxassetid://7733774602",        -- ESP Eye
+	["protect"] = "rbxassetid://7734056411",    -- Shield
+	["info"] = "rbxassetid://7733964719",       -- Info
+	["universal"] = "rbxassetid://7734056411",  -- Sparkles / Universal
+}
+
+local function resolveIcon(name, customIcon)
+	if customIcon and type(customIcon) == "string" and #customIcon > 0 then
+		return customIcon
+	end
+	local lower = string.lower(tostring(name))
+	for key, iconId in pairs(TAB_ICONS) do
+		if string.find(lower, key, 1, true) then
+			return iconId
+		end
+	end
+	return "rbxassetid://7733960981"
+end
+
+local function cleanTabName(name)
+	local clean = string.gsub(name, "[^%w%s%-%_]", "")
+	clean = string.gsub(clean, "^%s*(.-)%s*$", "%1")
+	if clean == "" then
+		return name
+	end
+	return clean
+end
+
 function Tab.new(config)
 	local self = setmetatable({}, Tab)
 
@@ -25,16 +60,14 @@ function Tab.new(config)
 	self._widgets = {}
 	self._y = 4
 
+	local iconId = resolveIcon(config.name, config.icon)
+	local displayName = cleanTabName(config.name)
+
 	self._btn = Builder.button({
 		Name = config.name,
 		Size = UDim2.new(1, -4, 0, BUTTON_HEIGHT),
 		BackgroundColor3 = Theme.SurfaceAlt,
-		Text = "    " .. config.name,
-		Font = Theme.FontMedium,
-		TextSize = 11,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = Theme.TextDim,
-		TextTruncate = Enum.TextTruncate.AtEnd,
+		Text = "",
 		LayoutOrder = config.index,
 		Parent = config.buttonParent,
 	})
@@ -45,6 +78,33 @@ function Tab.new(config)
 		Transparency = 0.8,
 	})
 	self._stroke = stroke
+
+	local iconImg = Builder.imageLabel({
+		Name = "Icon",
+		Size = UDim2.fromOffset(16, 16),
+		Position = UDim2.fromOffset(10, 7),
+		Image = iconId,
+		ImageColor3 = Theme.TextDim,
+		BackgroundTransparency = 1,
+		ZIndex = 8,
+		Parent = self._btn,
+	})
+	self._iconImg = iconImg
+
+	local label = Builder.label({
+		Name = "Title",
+		Size = UDim2.new(1, -38, 1, 0),
+		Position = UDim2.fromOffset(34, 0),
+		Font = Theme.FontMedium,
+		TextSize = 11,
+		Text = displayName,
+		TextColor3 = Theme.TextDim,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 8,
+		Parent = self._btn,
+	})
+	self._titleLbl = label
 
 	local indicator = Builder.frame({
 		Name = "ActiveIndicator",
@@ -98,8 +158,13 @@ function Tab:setActive(active)
 	self._page.Visible = active
 	self._btn.BackgroundColor3 = active and Theme.Card or Color3.fromRGB(0, 0, 0)
 	self._btn.BackgroundTransparency = active and 0 or 1
-	self._btn.TextColor3 = active and Theme.Accent or Theme.TextDim
-	self._btn.Font = active and Theme.FontBold or Theme.FontMedium
+	if self._iconImg then
+		self._iconImg.ImageColor3 = active and Theme.Accent or Theme.TextDim
+	end
+	if self._titleLbl then
+		self._titleLbl.TextColor3 = active and Theme.TextMain or Theme.TextDim
+		self._titleLbl.Font = active and Theme.FontBold or Theme.FontMedium
+	end
 	if self._indicator then
 		self._indicator.Visible = active
 	end
