@@ -66,7 +66,7 @@ return function(hub, tabs, cleanup)
 	mainTab:AddToggleGrid(
 		{
 			title = "Auto Steal",
-			desc = "Holds E, steals & deposits",
+			desc = "Bypass guard, steal & spawn wait",
 			default = false,
 			onChange = function(on)
 				movement:toggleAutoFarmBest(on)
