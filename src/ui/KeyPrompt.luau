@@ -95,6 +95,24 @@ function KeyPrompt.new(config)
 	self.busy = false
 	self.destroyed = false
 	self.onUnlocked = config.onUnlocked
+	local function cleanupOld()
+		local checkLocations = {}
+		if gethui then
+			pcall(function() table.insert(checkLocations, gethui()) end)
+		end
+		pcall(function() table.insert(checkLocations, game:GetService("CoreGui")) end)
+		pcall(function() table.insert(checkLocations, LocalPlayer:FindFirstChild("PlayerGui")) end)
+		for _, loc in ipairs(checkLocations) do
+			if loc then
+				local old = loc:FindFirstChild("FrostAuth")
+				if old then
+					pcall(function() old:Destroy() end)
+				end
+			end
+		end
+	end
+	cleanupOld()
+
 	self.screenGui = Util.newScreenGui("FrostAuth", 140)
 
 	local backdrop = Builder.frame({
@@ -139,7 +157,7 @@ function KeyPrompt.new(config)
 		Position = UDim2.fromOffset(20, 20),
 		Font = Theme.FontBold,
 		TextSize = 20,
-		Text = "AJJANS KEY SYSTEM",
+		Text = "FROST KEY SYSTEM",
 		TextColor3 = Theme.Accent,
 		ZIndex = 4,
 		Parent = card,
@@ -335,17 +353,18 @@ function KeyPrompt.new(config)
 				return
 			end
 
-			setStatus("Key accepted! Saving session & loading Frost Hub...", Theme.Success)
+			setStatus("Key accepted! Loading Frost...", Theme.Success)
 			saveKeyLocally(entered)
 
-			local ok, err = pcall(self.onUnlocked)
-			if ok then
-				self:destroy()
-			else
-				setBusy(false)
-				setStatus("Hub failed to start: " .. tostring(err), Theme.Danger)
-				warn("[Frost] Hub failed to start: " .. tostring(err))
-			end
+			-- Immediately destroy the key UI so it closes right away
+			self:destroy()
+
+			task.spawn(function()
+				local ok, err = pcall(self.onUnlocked)
+				if not ok then
+					warn("[Frost] Hub failed to start: " .. tostring(err))
+				end
+			end)
 		end)
 	end
 
@@ -392,7 +411,11 @@ function KeyPrompt:destroy()
 	end
 	self.destroyed = true
 	if self.screenGui then
-		self.screenGui:Destroy()
+		self.screenGui.Enabled = false
+		pcall(function()
+			self.screenGui:ClearAllChildren()
+			self.screenGui:Destroy()
+		end)
 		self.screenGui = nil
 	end
 end
