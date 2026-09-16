@@ -94,6 +94,7 @@ function Builder.frame(props, children)
 	return Builder.new("Frame", Builder.merge({
 		BackgroundColor3 = Theme.Surface,
 		BorderSizePixel = 0,
+		ZIndex = 5,
 	}, props), children)
 end
 
@@ -106,6 +107,7 @@ function Builder.label(props, children)
 		TextSize = 12,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		RichText = false,
+		ZIndex = 6,
 	}, props), children)
 end
 
@@ -116,6 +118,7 @@ function Builder.button(props, children)
 		Text = "",
 		AutoButtonColor = false,
 		Font = Theme.FontRegular,
+		ZIndex = 6,
 	}, props), children)
 end
 
@@ -123,6 +126,7 @@ function Builder.imageLabel(props, children)
 	return Builder.new("ImageLabel", Builder.merge({
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
+		ZIndex = 6,
 	}, props), children)
 end
 
