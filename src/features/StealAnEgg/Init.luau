@@ -36,10 +36,10 @@ return function(hub, tabs, cleanup)
 	-- ------------------------------------------------------------- MAIN (OMG HUB STYLE)
 	mainTab:AddSection("Auto Steal & Quick Actions")
 
-	mainTab:AddButton("⚡ Apply Recommended Speed (700) >", function()
-		movement:setSpeed(700)
+	mainTab:AddButton("⚡ Apply Safe Fast Speed (95) >", function()
+		movement:setSpeed(95)
 		movement:toggleSpeedBypass(true)
-		notify("Applied recommended speed: 700", "success")
+		notify("Applied safe speed: 95 (no rubberbanding)", "success")
 	end)
 
 	-- 2-Column Grid Row 1: Auto Steal | Auto Treadmill
