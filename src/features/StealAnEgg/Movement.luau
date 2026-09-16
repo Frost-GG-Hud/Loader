@@ -178,16 +178,12 @@ function Movement:neutralizeAntiCheat()
 				if (method == "FireServer" or method == "fireServer") and not checkcaller() then
 					if selfObj then
 						local name = tostring(selfObj.Name)
-						-- Block anti-cheat rubberband position rollback only
+						-- Only block the rubberband position correction remote.
+						-- Do NOT block guard/badge/any other remotes — the server
+						-- uses them for liveness and state sync; blocking = kick.
 						if name == "RE/RigSync/CorrectionBegan" or string.find(name, "CorrectionBegan", 1, true) then
 							return nil
 						end
-						-- Block guard hit/rouse triggers only when anti-guard feature is active
-						if (name == "RE/GuardPatrol/Rouse" or string.find(name, "GuardPatrol", 1, true)) and self.antiGuardHitRunning then
-							return nil
-						end
-						-- NOTE: Do NOT block BadgeService remotes — the server uses them
-						-- as a liveness heartbeat. Blocking causes an auto-kick/rejoin.
 					end
 				end
 				return oldNamecall(selfObj, ...)
@@ -858,21 +854,45 @@ local function findOfflinePile()
 	return searchIn(workspace)
 end
 
--- Claim Offline Income: teleport to the income pile, trigger collection, teleport back
+-- Claim Offline Income: fast-walk to the income pile, collect, fast-walk back
 function Movement:claimOfflineIncome()
 	local root = Util.getRootPart()
-	local originalCF = root and root.CFrame
-
-	-- Step 1: Try to find and teleport to the offline pile
-	local pile = findOfflinePile()
-	if pile then
-		pcall(function()
-			root.CFrame = CFrame.new(pile.Position + Vector3.new(0, 4, 0))
-		end)
-		task.wait(0.4)
+	local hum = Util.getHumanoid()
+	if not root or not hum then
+		self.notify("Character not ready", "error")
+		return false
 	end
 
-	-- Step 2: Fire all collection methods
+	local originalPos = root.Position
+	local originalSpeed = hum.WalkSpeed
+
+	-- Step 1: Find the offline income pile
+	local pile = findOfflinePile()
+	local pilePos = pile and pile.Position or nil
+
+	-- Step 2: Temporarily boost speed and walk to the pile
+	if pilePos then
+		hum.WalkSpeed = 100
+		-- Use a short dedicated walk loop (not safeWalkTo which checks farm flags)
+		local deadline = os.clock() + 8
+		while os.clock() < deadline do
+			local curRoot = Util.getRootPart()
+			local curHum = Util.getHumanoid()
+			if not curRoot or not curHum then break end
+			local dist = (Vector3.new(pilePos.X, 0, pilePos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
+			if dist <= 5 then break end
+			curHum:MoveTo(pilePos)
+			local velDir = (Vector3.new(pilePos.X, 0, pilePos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Unit
+			pcall(function()
+				local velY = curRoot.AssemblyLinearVelocity.Y
+				curRoot.AssemblyLinearVelocity = Vector3.new(velDir.X * 100, velY, velDir.Z * 100)
+			end)
+			task.wait(0.12)
+		end
+		task.wait(0.3)
+	end
+
+	-- Step 3: Fire all collection methods now that we're standing at the pile
 	local claimed = false
 	local amount = nil
 
@@ -899,10 +919,8 @@ function Movement:claimOfflineIncome()
 		end
 	end)
 
-	-- Method B: Trigger any nearby "collect/claim" ProximityPrompts
+	-- Method B: Trigger nearby collect/claim ProximityPrompts
 	pcall(function()
-		local checkRoot = Util.getRootPart()
-		if not checkRoot then return end
 		for _, desc in ipairs(workspace:GetDescendants()) do
 			if desc:IsA("ProximityPrompt") then
 				local act = string.lower(desc.ActionText)
@@ -918,7 +936,7 @@ function Movement:claimOfflineIncome()
 		end
 	end)
 
-	-- Method C: firetouchinterest on the pile if we're standing on it
+	-- Method C: firetouchinterest on the pile
 	if pile then
 		pcall(function()
 			local curRoot = Util.getRootPart()
@@ -931,27 +949,41 @@ function Movement:claimOfflineIncome()
 		end)
 	end
 
-	task.wait(0.3)
+	task.wait(0.2)
 
-	-- Step 3: Teleport back to original position
-	if originalCF then
-		pcall(function()
+	-- Step 4: Walk back to original position at same fast speed
+	if originalPos then
+		local deadline = os.clock() + 8
+		while os.clock() < deadline do
 			local curRoot = Util.getRootPart()
-			if curRoot then
-				curRoot.CFrame = originalCF
-			end
-		end)
+			local curHum = Util.getHumanoid()
+			if not curRoot or not curHum then break end
+			local dist = (Vector3.new(originalPos.X, 0, originalPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
+			if dist <= 4 then break end
+			curHum:MoveTo(originalPos)
+			local velDir = (Vector3.new(originalPos.X, 0, originalPos.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Unit
+			pcall(function()
+				local velY = curRoot.AssemblyLinearVelocity.Y
+				curRoot.AssemblyLinearVelocity = Vector3.new(velDir.X * 100, velY, velDir.Z * 100)
+			end)
+			task.wait(0.12)
+		end
 	end
+
+	-- Restore original speed
+	local curHum = Util.getHumanoid()
+	if curHum then curHum.WalkSpeed = originalSpeed end
 
 	if claimed and amount then
 		self.notify(string.format("Claimed offline income: +%s!", EggData.formatMoney(amount)), "success")
 	elseif claimed then
 		self.notify("Claimed offline income successfully!", "success")
 	else
-		self.notify("Teleported to pile — no income found or already collected", "info")
+		self.notify("Walked to pile — no income available yet", "info")
 	end
 	return claimed
 end
+
 
 -- Auto Collect Offline Cash (loops every 5s, teleports to pile each time)
 function Movement:toggleAutoCash(enabled)
