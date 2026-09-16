@@ -1,10 +1,10 @@
--- Ajjans Steal an Egg V4.6 Entry Point
+-- Frost Steal a Egg V4.6 Entry Point
 -- Builds window, sets up navigation tabs (Main, Automation, Events, Predictor, Misc)
 -- and mounts feature modules.
 
 local ctx = ...
 if type(ctx) ~= "table" or type(ctx.require) ~= "function" then
-	warn("[Ajjans] main.luau must be started by Loader.luau.")
+	warn("[Frost] main.luau must be started by Loader.luau.")
 	return
 end
 
