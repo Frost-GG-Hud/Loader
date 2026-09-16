@@ -104,10 +104,10 @@ return function(hub, tabs, cleanup)
 		}
 	)
 
-	-- 2-Column Grid Row 3: Anti Guard Hit | Monster Bypass
+	-- 2-Column Grid Row 3: Anti Hit Guard | Monster Bypass
 	mainTab:AddToggleGrid(
 		{
-			title = "Anti Guard Hit",
+			title = "Anti Hit Guard",
 			desc = "Blocks guard knockback & drops",
 			default = false,
 			onChange = function(on)
@@ -215,7 +215,7 @@ return function(hub, tabs, cleanup)
 
 	defenseTab:AddToggleGrid(
 		{
-			title = "Anti Guard Hit",
+			title = "Anti Hit Guard",
 			desc = "Blocks guard knockback & drops",
 			default = false,
 			onChange = function(on)
