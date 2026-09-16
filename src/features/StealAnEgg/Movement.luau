@@ -173,24 +173,21 @@ function Movement:neutralizeAntiCheat()
 		self._hookedCorrection = true
 		pcall(function()
 			local oldNamecall
-			local badgeService = game:GetService("BadgeService")
 			oldNamecall = hookmetamethod(game, "__namecall", function(selfObj, ...)
 				local method = getnamecallmethod()
 				if (method == "FireServer" or method == "fireServer") and not checkcaller() then
 					if selfObj then
 						local name = tostring(selfObj.Name)
-						-- 1. Block anti-cheat rubberband position rollback
+						-- Block anti-cheat rubberband position rollback only
 						if name == "RE/RigSync/CorrectionBegan" or string.find(name, "CorrectionBegan", 1, true) then
 							return nil
 						end
-						-- 2. Block disguised BadgeService GUID telemetry beacons
-						if badgeService and selfObj.Parent == badgeService then
-							return nil
-						end
-						-- 3. Block guard hit/rouse triggers if anti-guard is active
+						-- Block guard hit/rouse triggers only when anti-guard feature is active
 						if (name == "RE/GuardPatrol/Rouse" or string.find(name, "GuardPatrol", 1, true)) and self.antiGuardHitRunning then
 							return nil
 						end
+						-- NOTE: Do NOT block BadgeService remotes — the server uses them
+						-- as a liveness heartbeat. Blocking causes an auto-kick/rejoin.
 					end
 				end
 				return oldNamecall(selfObj, ...)
@@ -811,10 +808,75 @@ function Movement:toggleAutoFarmAll(enabled)
 	end)
 end
 
--- Claim Offline Income via RF/AwayEarnings/AskCollect
+-- Finds the offline income collector Part/Prompt inside the player's plot
+local function findOfflinePile()
+	-- Search for the cash pile / offline earnings collector in the plot
+	-- Common names: "OfflinePile", "AwayCash", "OfflineIncome", "CashPile", "Earnings"
+	local plotsFolder = workspace:FindFirstChild("Plots")
+		or workspace:FindFirstChild("PlayerPlots")
+		or workspace:FindFirstChild("Plots", true)
+
+	local function searchIn(parent)
+		if not parent then return nil end
+		for _, desc in ipairs(parent:GetDescendants()) do
+			local lname = string.lower(desc.Name)
+			if desc:IsA("BasePart") and (
+				string.find(lname, "offline", 1, true) or
+				string.find(lname, "awaycash", 1, true) or
+				string.find(lname, "cashpile", 1, true) or
+				string.find(lname, "earnings", 1, true) or
+				string.find(lname, "moneystack", 1, true) or
+				string.find(lname, "pile", 1, true)
+			) then
+				return desc
+			end
+			-- Also look for a ProximityPrompt whose ActionText mentions collecting
+			if desc:IsA("ProximityPrompt") then
+				local act = string.lower(desc.ActionText)
+				if string.find(act, "collect", 1, true) or string.find(act, "claim", 1, true) or string.find(act, "cash", 1, true) then
+					local pp = desc.Parent
+					if pp and pp:IsA("BasePart") then return pp end
+				end
+			end
+		end
+		return nil
+	end
+
+	-- 1. Search inside the player's own plot
+	if plotsFolder then
+		for _, plot in ipairs(plotsFolder:GetChildren()) do
+			local owner = plot:GetAttribute("Owner") or plot:GetAttribute("OwnerName") or plot:GetAttribute("OwnerId")
+			local isMatch = (owner == LocalPlayer.Name or owner == tostring(LocalPlayer.UserId) or owner == LocalPlayer.UserId)
+			if isMatch then
+				local found = searchIn(plot)
+				if found then return found end
+			end
+		end
+	end
+
+	-- 2. Fall back: search entire workspace for the pile
+	return searchIn(workspace)
+end
+
+-- Claim Offline Income: teleport to the income pile, trigger collection, teleport back
 function Movement:claimOfflineIncome()
+	local root = Util.getRootPart()
+	local originalCF = root and root.CFrame
+
+	-- Step 1: Try to find and teleport to the offline pile
+	local pile = findOfflinePile()
+	if pile then
+		pcall(function()
+			root.CFrame = CFrame.new(pile.Position + Vector3.new(0, 4, 0))
+		end)
+		task.wait(0.4)
+	end
+
+	-- Step 2: Fire all collection methods
 	local claimed = false
 	local amount = nil
+
+	-- Method A: RF/AwayEarnings/AskCollect remote
 	pcall(function()
 		local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
 		local rfAway = (networking and networking:FindFirstChild("RF/AwayEarnings/AskCollect"))
@@ -828,27 +890,70 @@ function Movement:claimOfflineIncome()
 			else
 				result = rfAway:InvokeServer()
 			end
-
-			if result and type(result) == "table" then
+			if result then
 				claimed = true
-				if result[3] and result[3].AwardedAmount then
+				if type(result) == "table" and result[3] and result[3].AwardedAmount then
 					amount = result[3].AwardedAmount
 				end
 			end
 		end
 	end)
 
+	-- Method B: Trigger any nearby "collect/claim" ProximityPrompts
+	pcall(function()
+		local checkRoot = Util.getRootPart()
+		if not checkRoot then return end
+		for _, desc in ipairs(workspace:GetDescendants()) do
+			if desc:IsA("ProximityPrompt") then
+				local act = string.lower(desc.ActionText)
+				if string.find(act, "collect", 1, true) or string.find(act, "claim", 1, true) or string.find(act, "cash", 1, true) then
+					if fireproximityprompt then
+						pcall(fireproximityprompt, desc, 0, true)
+					else
+						pcall(function() desc:InputHoldBegin() task.wait(0.15) desc:InputHoldEnd() end)
+					end
+					claimed = true
+				end
+			end
+		end
+	end)
+
+	-- Method C: firetouchinterest on the pile if we're standing on it
+	if pile then
+		pcall(function()
+			local curRoot = Util.getRootPart()
+			if curRoot and firetouchinterest then
+				firetouchinterest(curRoot, pile, 0)
+				task.wait(0.1)
+				firetouchinterest(curRoot, pile, 1)
+				claimed = true
+			end
+		end)
+	end
+
+	task.wait(0.3)
+
+	-- Step 3: Teleport back to original position
+	if originalCF then
+		pcall(function()
+			local curRoot = Util.getRootPart()
+			if curRoot then
+				curRoot.CFrame = originalCF
+			end
+		end)
+	end
+
 	if claimed and amount then
 		self.notify(string.format("Claimed offline income: +%s!", EggData.formatMoney(amount)), "success")
 	elseif claimed then
 		self.notify("Claimed offline income successfully!", "success")
 	else
-		self.notify("No offline income currently available to claim", "info")
+		self.notify("Teleported to pile — no income found or already collected", "info")
 	end
 	return claimed
 end
 
--- Auto Collect Offline Cash
+-- Auto Collect Offline Cash (loops every 5s, teleports to pile each time)
 function Movement:toggleAutoCash(enabled)
 	if not enabled then
 		self.autoCashRunning = false
@@ -857,50 +962,12 @@ function Movement:toggleAutoCash(enabled)
 	end
 
 	self.autoCashRunning = true
-	self.notify("Auto Cash enabled (using PlatformController remote)", "success")
+	self.notify("Auto Cash enabled — teleporting to pile every 5s", "success")
 
 	Util.spawn(function()
 		while self.autoCashRunning do
 			pcall(function()
-				-- Method 1: Packages.Networking RF/AwayEarnings/AskCollect with PlatformController
-				local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
-				local rfAway = (networking and networking:FindFirstChild("RF/AwayEarnings/AskCollect"))
-					or ReplicatedStorage:FindFirstChild("RF/AwayEarnings/AskCollect", true)
-				if rfAway and rfAway:IsA("RemoteFunction") then
-					local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
-					local platformController = playerScripts and playerScripts:FindFirstChild("Game") and playerScripts.Game:FindFirstChild("PlatformController")
-					if platformController then
-						rfAway:InvokeServer(platformController)
-					else
-						rfAway:InvokeServer()
-					end
-				end
-
-				-- Method 2: Sweep proximity prompts in plots
-				local root = Util.getRootPart()
-				if root then
-					for _, desc in ipairs(workspace:GetDescendants()) do
-						if desc:IsA("ProximityPrompt") and (string.find(string.lower(desc.ActionText), "collect", 1, true) or string.find(string.lower(desc.ActionText), "claim", 1, true)) then
-							pcall(function()
-								if fireproximityprompt then
-									fireproximityprompt(desc, 0, true)
-								else
-									desc:InputHoldBegin()
-									task.wait(0.2)
-									desc:InputHoldEnd()
-								end
-							end)
-						elseif desc:IsA("BasePart") and (string.find(string.lower(desc.Name), "collect", 1, true) or string.find(string.lower(desc.Name), "offline", 1, true)) then
-							pcall(function()
-								if firetouchinterest then
-									firetouchinterest(root, desc, 0)
-									task.wait()
-									firetouchinterest(root, desc, 1)
-								end
-							end)
-						end
-					end
-				end
+				self:claimOfflineIncome()
 			end)
 			task.wait(5)
 		end
