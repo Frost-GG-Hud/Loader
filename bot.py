@@ -64,14 +64,14 @@ def not_allowed_embed() -> discord.Embed:
     )
 
 
-@tree.command(name="key", description="Get the working Ajjans Steal an Egg key and loader script")
+@tree.command(name="key", description="Get the working Frost Steal an Egg key and loader script")
 async def key_command(interaction: discord.Interaction):
     current = load_key()
     script_url = github_raw_url("src/Loader.luau")
     loader = f'loadstring(game:HttpGet("{script_url}"))()'
 
     embed = discord.Embed(
-        title="🔑 Ajjans Steal an Egg — Current Working Key",
+        title="🔑 Frost Steal an Egg — Current Working Key",
         description=(
             f"**Current Free Key:**\n```\n{current}\n```\n"
             f"**Executor Loader Script:**\n```lua\n{loader}\n```\n"
@@ -79,7 +79,7 @@ async def key_command(interaction: discord.Interaction):
         ),
         color=discord.Color.from_rgb(235, 35, 45),
     )
-    embed.set_footer(text="Ajjans Steel a Egg V4.6")
+    embed.set_footer(text="Frost Steel a Egg V4.6")
     await interaction.response.send_message(embed=embed)
 
 
@@ -146,36 +146,36 @@ async def setkey_command(interaction: discord.Interaction, key: str):
             color=discord.Color.from_rgb(243, 156, 18),
         )
 
-    embed.set_footer(text="Ajjans Steel a Egg V4.6")
+    embed.set_footer(text="Frost Steel a Egg V4.6")
     await interaction.response.send_message(embed=embed)
 
 
-@tree.command(name="script", description="Get the 1-line executor loadstring for Ajjans Steal an Egg")
+@tree.command(name="script", description="Get the 1-line executor loadstring for Frost Steal an Egg")
 async def script_command(interaction: discord.Interaction):
     script_url = github_raw_url("src/Loader.luau")
     loader = f'loadstring(game:HttpGet("{script_url}"))()'
     embed = discord.Embed(
-        title="📜 Ajjans Steal an Egg — Script Loader",
+        title="📜 Frost Steal an Egg — Script Loader",
         description=f"Paste this line into your Roblox executor:\n\n```lua\n{loader}\n```",
         color=discord.Color.from_rgb(235, 35, 45),
     )
-    embed.set_footer(text="Ajjans Steel a Egg V4.6")
+    embed.set_footer(text="Frost Steel a Egg V4.6")
     await interaction.response.send_message(embed=embed)
 
 
 @bot.event
 async def on_ready():
-    print(f"[Ajjans Bot] Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"[Frost Bot] Logged in as {bot.user} (ID: {bot.user.id})")
     try:
         if GUILD_ID and GUILD_ID.isdigit():
             guild = discord.Object(id=int(GUILD_ID))
             synced = await tree.sync(guild=guild)
-            print(f"[Ajjans Bot] Synced {len(synced)} command(s) to guild {GUILD_ID}")
+            print(f"[Frost Bot] Synced {len(synced)} command(s) to guild {GUILD_ID}")
         else:
             synced = await tree.sync()
-            print(f"[Ajjans Bot] Synced {len(synced)} global command(s)")
+            print(f"[Frost Bot] Synced {len(synced)} global command(s)")
     except Exception as e:
-        print(f"[Ajjans Bot] Failed to sync commands: {e}")
+        print(f"[Frost Bot] Failed to sync commands: {e}")
 
 
 if __name__ == "__main__":
