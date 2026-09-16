@@ -35,18 +35,16 @@ return function(hub, tabs, cleanup)
 	cleanup.track(teardown)
 
 	-- ------------------------------------------------------------- MAIN TAB (ACTIONS & CONTROLS)
-	mainTab:AddSection("⚡ Quick Actions & Safe Speed")
-
-	mainTab:AddButton("⚡ Apply Safe Fast Speed (95) >", function()
-		movement:setSpeed(95)
+	mainTab:AddButton("⚡ Apply Safe Speed (35) [No Rubberband] >", function()
+		movement:setSpeed(35)
 		movement:toggleSpeedBypass(true)
-		notify("Applied safe speed: 95 (no rubberbanding)", "success")
+		notify("Applied safe speed: 35 (never rubberbands)", "success")
 	end)
 
-	mainTab:AddButton("🏃 Extreme Speed (150) >", function()
-		movement:setSpeed(150)
+	mainTab:AddButton("🏃 Fast Speed Bypass (55) [Smooth CFrame] >", function()
+		movement:setSpeed(55)
 		movement:toggleSpeedBypass(true)
-		notify("Applied extreme speed: 150", "warning")
+		notify("Applied fast bypass speed: 55", "success")
 	end)
 
 	mainTab:AddButton("🛑 Stop All Automation & Reset Speed", function()
@@ -148,11 +146,11 @@ return function(hub, tabs, cleanup)
 
 	mainTab:AddSection("Movement Speed & Bypass")
 
-	mainTab:AddSlider("Movement Speed (1 - 1000)", 1, 1000, 60, function(value)
+	mainTab:AddSlider("Movement Speed (16 - 150)", 16, 150, 35, function(value)
 		movement:setSpeed(value)
 	end, 1)
 
-	mainTab:AddToggle("Speed Bypass Active (1 - 1000)", false, function(on)
+	mainTab:AddToggle("Speed Bypass Active (CFrame Micro-Step)", false, function(on)
 		movement:toggleSpeedBypass(on)
 	end)
 
