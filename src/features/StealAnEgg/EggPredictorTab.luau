@@ -525,12 +525,17 @@ return function(tab, cleanup)
 
 	-- Refresh eggs and redraw list
 	local function refresh()
-		listsContainer:ClearAllChildren()
+		pcall(function()
+			listsContainer:ClearAllChildren()
+		end)
 
-		local scanned = EggData.scan(false)
+		local scanned = nil
+		local okScan = pcall(function()
+			scanned = EggData.scan(false)
+		end)
 		local eggs = {}
 
-		if scanned and #scanned > 0 then
+		if okScan and scanned and #scanned > 0 then
 			for _, item in ipairs(scanned) do
 				local ready = (item.prompt ~= nil) or (item.distance and item.distance < 15)
 				table.insert(eggs, {
@@ -657,7 +662,7 @@ return function(tab, cleanup)
 	end)
 
 	-- Initial population
-	refresh()
+	pcall(refresh)
 
 	-- Periodic auto-refresh
 	local running = true
@@ -665,7 +670,7 @@ return function(tab, cleanup)
 		while running do
 			task.wait(2.5)
 			if running and page.Visible then
-				refresh()
+				pcall(refresh)
 			end
 		end
 	end)
