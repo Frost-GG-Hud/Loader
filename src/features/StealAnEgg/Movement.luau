@@ -653,46 +653,54 @@ function Movement:isCarryingEgg()
 	return false
 end
 
+local function teleportCharacter(char, targetCF)
+	if not char then return end
+	pcall(function()
+		char:PivotTo(targetCF)
+	end)
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") then
+			pcall(function()
+				part.AssemblyLinearVelocity = Vector3.zero
+				part.AssemblyAngularVelocity = Vector3.zero
+				part.CFrame = targetCF
+			end)
+		end
+	end
+end
+
 -- Exploit Auto-Steal Sequence:
--- 1. Steal nearest decoy egg & wait until actually holding it
--- 2. Wait until guard hits and ragdolls you
--- 3. Teleport to designated target egg (>= minMoneyPerSec)
--- 4. Wait for designated egg to confirm
--- 5. Steal designated egg & confirm carrying
--- 6. Teleport to 'the thing' (elevated safe spot above guard hit range)
--- 7. Walk really fast to spawn safe zone to claim & deposit
+-- 1. Steal nearest decoy egg & confirm hold
+-- 2. On guard hit / ragdoll, move all character parts to designated egg ALREADY while ragdolled
+-- 3. Fire steal on designated egg immediately
+-- 4. Recover from ragdoll
+-- 5. Teleport to 'the thing' (Y + 30 above guard range)
+-- 6. Blazing fast runway sprint straight to spawn safe zone
 function Movement:exploitSteal(target)
 	local hum, root = self:_context()
 	if not hum or not root or hum.Health <= 0 then
 		return false
 	end
 
+	local char = LocalPlayer.Character
+
 	-- Step 1: Actually steal the nearest decoy egg at the start
 	local decoy = EggData.closest(nil, 0)
 	if decoy and decoy.uid ~= target.uid then
-		pcall(function()
-			root.CFrame = CFrame.new(decoy.position + Vector3.new(0, 2.5, 0))
-		end)
-		task.wait(0.12)
+		teleportCharacter(char, CFrame.new(decoy.position + Vector3.new(0, 2, 0)))
+		task.wait(0.08)
 
-		-- Trigger steal and wait until the egg tool/carry is confirmed
+		-- Trigger steal on decoy egg
 		self:stealEgg(decoy)
-		local carryDeadline = os.clock() + 1.5
-		while os.clock() < carryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
-			if self:isCarryingEgg() then
-				break
-			end
-			task.wait(0.05)
-		end
 
-		-- Step 2: Wait until guard hits and you get ragdolled
+		-- Step 2: Wait until guard hits / ragdoll begins
 		pcall(function()
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
 		end)
 
 		local startHealth = hum.Health
-		local ragdollDeadline = os.clock() + 3.0
+		local ragdollDeadline = os.clock() + 2.5
 
 		while os.clock() < ragdollDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 			local state = hum:GetState()
@@ -703,61 +711,50 @@ function Movement:exploitSteal(target)
 			then
 				break
 			end
-			task.wait(0.04)
+			task.wait(0.02)
 		end
 
-		-- Step 3: DURING RAGDOLL, instantly teleport to the designated egg
-		pcall(function()
-			root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
-		end)
+		-- Step 3: MOVE ALL CHARACTER PARTS/HUMANOIDS TO DESIGNATED EGG ALREADY WHILE RAGDOLLED!
+		local targetCF = CFrame.new(target.position + Vector3.new(0, 2, 0))
+		teleportCharacter(char, targetCF)
 
-		-- Step 4: Wait for designated egg to load and confirm while ragdolled
-		local confirmDeadline = os.clock() + 0.8
-		while os.clock() < confirmDeadline do
-			if target.prompt and target.prompt.Parent and target.prompt.Enabled then
-				break
-			end
-			task.wait(0.05)
-		end
-		task.wait(0.15)
+		-- Immediately fire steal on designated egg
+		self:stealEgg(target)
 
-		-- Recover from ragdoll now that character is at designated egg and it has loaded
+		-- Instantly recover from ragdoll
 		pcall(function()
 			hum.PlatformStand = false
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
-		task.wait(0.08)
+		task.wait(0.05)
 	else
-		pcall(function()
-			root.CFrame = CFrame.new(target.position + Vector3.new(0, 2.5, 0))
-		end)
-		task.wait(0.2)
+		local targetCF = CFrame.new(target.position + Vector3.new(0, 2, 0))
+		teleportCharacter(char, targetCF)
+		task.wait(0.08)
 	end
 
 	if not (self.autoFarmBestRunning or self.autoFarmAllRunning) then
 		return false
 	end
 
-	-- Step 5: Steal the designated egg
+	-- Step 4: Confirm designated egg steal
 	print(string.format("[Frost] ⚡ Stealing designated egg (%s - %s)!", target.cleanDisplay or target.eggName or "Egg", EggData.formatMoney(target.moneyPerSec)))
 	self:stealEgg(target)
-	local targetCarryDeadline = os.clock() + 1.5
+	local targetCarryDeadline = os.clock() + 0.8
 	while os.clock() < targetCarryDeadline and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 		if self:isCarryingEgg() then
 			break
 		end
-		task.wait(0.05)
+		task.wait(0.03)
 	end
 
-	-- Step 6: Teleport to 'the thing' (elevated safe spot Y + 30 above guard range)
+	-- Step 5: Teleport to 'the thing' (elevated safe spot Y + 30 above guard range)
 	local highY = root.Position.Y + 30
-	pcall(function()
-		root.CFrame = CFrame.new(root.Position.X, highY, root.Position.Z)
-	end)
-	task.wait(0.05)
+	teleportCharacter(char, CFrame.new(root.Position.X, highY, root.Position.Z))
+	task.wait(0.04)
 
-	-- Step 7: Walk really really fast to the spawn to claim the egg
+	-- Step 6: Walk really really fast across runway to spawn safe zone
 	local basePos = self:findBasePosition()
 	if basePos then
 		local startPos = root.Position
@@ -765,12 +762,12 @@ function Movement:exploitSteal(target)
 		local delta = targetAirPos - startPos
 		local dist = (Vector3.new(delta.X, 0, delta.Z)).Magnitude
 
-		-- Spawn temporary solid runway platform ("the thing") under feet so character walks at high speed
+		-- Spawn temporary solid runway platform under feet
 		local runway = nil
 		pcall(function()
 			runway = Instance.new("Part")
 			runway.Name = "SafeRunwayThing"
-			runway.Size = Vector3.new(10, 1, math.max(dist + 20, 30))
+			runway.Size = Vector3.new(12, 1, math.max(dist + 30, 40))
 			runway.CFrame = CFrame.new(startPos:Lerp(targetAirPos, 0.5) - Vector3.new(0, 3.2, 0), targetAirPos - Vector3.new(0, 3.2, 0))
 			runway.Anchored = true
 			runway.CanCollide = true
@@ -778,28 +775,27 @@ function Movement:exploitSteal(target)
 			runway.Parent = workspace
 		end)
 
-		local fastSpeed = math.clamp(self.customSpeed or 80, 50, 200)
+		local fastSpeed = math.clamp(self.customSpeed or 140, 100, 300)
 		hum.WalkSpeed = fastSpeed
 
 		local walkStart = os.clock()
-		local maxWalkTime = math.clamp(dist / fastSpeed + 1.2, 0.5, 6)
+		local maxWalkTime = math.clamp(dist / fastSpeed + 0.8, 0.3, 4)
 
 		while os.clock() - walkStart < maxWalkTime and (self.autoFarmBestRunning or self.autoFarmAllRunning) do
 			local currentDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(targetAirPos.X, 0, targetAirPos.Z)).Magnitude
-			if currentDist <= 6 then
+			if currentDist <= 5 then
 				break
 			end
 
-			-- Walk forward on runway towards spawn
 			hum:MoveTo(targetAirPos)
 
-			-- Smooth CFrame micro-step forward to guarantee high walk velocity
+			-- Micro-step forward at high speed
 			local toBaseDir = (Vector3.new(targetAirPos.X - root.Position.X, 0, targetAirPos.Z - root.Position.Z))
 			if toBaseDir.Magnitude > 0.1 then
-				local step = toBaseDir.Unit * math.min(fastSpeed * 0.04, toBaseDir.Magnitude)
+				local step = toBaseDir.Unit * math.min(fastSpeed * 0.03, toBaseDir.Magnitude)
 				root.CFrame = CFrame.new(root.Position.X + step.X, highY, root.Position.Z + step.Z)
 			end
-			task.wait(0.04)
+			task.wait(0.02)
 		end
 
 		if runway then
@@ -807,11 +803,8 @@ function Movement:exploitSteal(target)
 		end
 
 		-- Drop down into the base safe zone to claim/deposit
-		pcall(function()
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.CFrame = CFrame.new(basePos + Vector3.new(0, 3, 0))
-		end)
-		task.wait(0.25)
+		teleportCharacter(char, CFrame.new(basePos + Vector3.new(0, 3, 0)))
+		task.wait(0.15)
 	end
 
 	self:logEggStolen(target)
