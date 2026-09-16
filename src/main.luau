@@ -40,11 +40,11 @@ local function buildHub()
 	end)
 
 	-- 1. Main Navigation Tabs matching reference screenshot
-	local mainTab = window:addTab("🏠 Main")
-	local autoTab = window:addTab("⚙️ Automation")
-	local eventsTab = window:addTab("🎁 Events")
-	local predictorTab = window:addTab("➕ Predictor")
-	local miscTab = window:addTab("⚙️ Misc")
+	local mainTab = window:addTab("Main", "rbxassetid://7733960981")
+	local autoTab = window:addTab("Automation", "rbxassetid://7734053495")
+	local eventsTab = window:addTab("Events", "rbxassetid://7733942651")
+	local predictorTab = window:addTab("Predictor", "rbxassetid://7734058499")
+	local miscTab = window:addTab("Misc", "rbxassetid://7734053426")
 
 	-- 2. Mount Egg Predictor (Screenshot feature)
 	EggPredictorTab(predictorTab, cleanup)
@@ -140,7 +140,7 @@ local function buildHub()
 	end)
 
 	-- Default to Predictor tab matching the user's reference image
-	window:select("➕ Predictor")
+	window:select("Predictor")
 	window:notify("Frost Steal a Egg V4.6 Loaded!", "success")
 
 	return window
