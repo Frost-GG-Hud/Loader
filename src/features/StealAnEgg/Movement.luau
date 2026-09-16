@@ -14,9 +14,10 @@ local PathfindingService = game:GetService("PathfindingService")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
-local ARRIVE_DISTANCE = 6
+local ARRIVE_DISTANCE = 5        -- must be this close to fire the carry remote (server range ~300 studs is fine, but 5 ensures proximity prompt triggers)
 local WAYPOINT_DISTANCE = 4.5
 local SAFE_ZONE_NAMES = { "SafeZone", "SafeArea", "Base", "Baseplate", "SpawnArea", "PlayerPlot", "Plot" }
+local RESPAWN_SAFE_POS   = Vector3.new(0, 5, 0)   -- teleport here after respawn when auto-farm is active
 
 local Movement = {}
 Movement.__index = Movement
@@ -106,6 +107,50 @@ function Movement:_context()
 		return nil, nil
 	end
 	return hum, root
+end
+
+-- Waits until the character is fully loaded and HumanoidRootPart is settled (not at spawn Y)
+function Movement:_waitForCharacter(timeout)
+	local deadline = os.clock() + (timeout or 10)
+	while os.clock() < deadline do
+		local hum = Util.getHumanoid()
+		local root = Util.getRootPart()
+		if hum and root and hum.Health > 0 then
+			return true
+		end
+		task.wait(0.3)
+	end
+	return false
+end
+
+-- Called at the start of each farm cycle. If the character just respawned (velocity ~0 and
+-- HumanoidRootPart is very close to a SpawnLocation), teleport them to the safe map center
+-- so they don't immediately walk into the nearest wall.
+function Movement:_handleRespawn()
+	local root = Util.getRootPart()
+	if not root then return end
+
+	-- Detect spawn-wall proximity: if the character is within 10 studs of any SpawnLocation
+	-- or their velocity is near-zero, they likely just respawned.
+	local justSpawned = false
+	for _, sp in ipairs(workspace:GetDescendants()) do
+		if sp:IsA("SpawnLocation") then
+			local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(sp.Position.X, 0, sp.Position.Z)).Magnitude
+			if dist < 12 then
+				justSpawned = true
+				break
+			end
+		end
+	end
+
+	if justSpawned then
+		-- Teleport to safe map centre so the walk path doesn't immediately hit the spawn wall
+		pcall(function()
+			root.CFrame = CFrame.new(RESPAWN_SAFE_POS)
+		end)
+		task.wait(0.5)
+		self.notify("Respawned — moved to map centre, resuming farm...", "info")
+	end
 end
 
 function Movement:neutralizeAntiCheat()
@@ -627,11 +672,20 @@ function Movement:toggleAutoFarmBest(enabled)
 
 	Util.spawn(function()
 		while self.autoFarmBestRunning do
-			local hum, root = self:_context()
-			if not hum or not root then
+			-- Wait for a live character before doing anything
+			if not self:_waitForCharacter(8) then
 				task.wait(1)
 				continue
 			end
+
+			local hum, root = self:_context()
+			if not hum or not root or hum.Health <= 0 then
+				task.wait(1)
+				continue
+			end
+
+			-- After respawn, move to safe centre so we don't walk into walls
+			self:_handleRespawn()
 
 			-- 1. Find best egg meeting minimum money threshold
 			local target = EggData.bestValue(self.minMoneyPerSec)
@@ -640,21 +694,34 @@ function Movement:toggleAutoFarmBest(enabled)
 				continue
 			end
 
-			-- 2. Walk to egg avoiding walls
-			local reached, reason = self:safeWalkTo(target.position, 16)
-			if not reached and reason == "trapped" then
+			-- 2. Walk to egg (PathfindingService wall avoidance)
+			local reached, reason = self:safeWalkTo(target.position, 20)
+			if not self.autoFarmBestRunning then break end
+			if reason == "trapped" then
 				continue
 			end
 
-			-- 3. Steal egg by holding E
-			self:stealEgg(target)
-			task.wait(0.3)
+			-- 3. Only steal if we actually arrived close enough
+			local curRoot = Util.getRootPart()
+			if curRoot then
+				local dist = (Vector3.new(target.position.X, 0, target.position.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
+				if dist > 10 then
+					-- Didn't get close enough – retry next cycle
+					task.wait(0.5)
+					continue
+				end
+			end
 
-			-- 4. Walk back to player's base plot to deposit
+			-- 4. Steal egg (hold E / fire carry remote)
+			self:stealEgg(target)
+			task.wait(0.6)   -- let server-side grab register before walking off
+
+			-- 5. Walk back to player's base plot to deposit
 			local basePos = self:findBasePosition()
-			local deposited, depReason = self:safeWalkTo(basePos, 18)
+			local deposited, depReason = self:safeWalkTo(basePos, 22)
+			if not self.autoFarmBestRunning then break end
 			if not deposited and depReason == "trapped" then
-				self.notify("Animal attacked during delivery! Returning to egg to re-grab...", "warning")
+				self.notify("Animal attacked during delivery! Waiting...", "warning")
 				while self:isTrapped() and self.autoFarmBestRunning do
 					task.wait(0.5)
 				end
@@ -662,7 +729,7 @@ function Movement:toggleAutoFarmBest(enabled)
 			end
 
 			self:logEggStolen(target)
-			task.wait(0.5)
+			task.wait(0.4)
 		end
 	end)
 end
@@ -684,11 +751,20 @@ function Movement:toggleAutoFarmAll(enabled)
 
 	Util.spawn(function()
 		while self.autoFarmAllRunning do
-			local hum, root = self:_context()
-			if not hum or not root then
+			-- Wait for a live character before doing anything
+			if not self:_waitForCharacter(8) then
 				task.wait(1)
 				continue
 			end
+
+			local hum, root = self:_context()
+			if not hum or not root or hum.Health <= 0 then
+				task.wait(1)
+				continue
+			end
+
+			-- After respawn, move to safe centre so we don't walk into walls
+			self:_handleRespawn()
 
 			local target = EggData.closest(nil, self.minMoneyPerSec)
 			if not target then
@@ -696,21 +772,33 @@ function Movement:toggleAutoFarmAll(enabled)
 				continue
 			end
 
-			-- 1. Walk to egg avoiding walls
-			local reached, reason = self:safeWalkTo(target.position, 14)
-			if not reached and reason == "trapped" then
+			-- 1. Walk to egg (PathfindingService wall avoidance)
+			local reached, reason = self:safeWalkTo(target.position, 18)
+			if not self.autoFarmAllRunning then break end
+			if reason == "trapped" then
 				continue
 			end
 
-			-- 2. Steal egg by holding E
-			self:stealEgg(target)
-			task.wait(0.3)
+			-- 2. Only steal if we actually arrived close enough
+			local curRoot = Util.getRootPart()
+			if curRoot then
+				local dist = (Vector3.new(target.position.X, 0, target.position.Z) - Vector3.new(curRoot.Position.X, 0, curRoot.Position.Z)).Magnitude
+				if dist > 10 then
+					task.wait(0.5)
+					continue
+				end
+			end
 
-			-- 3. Walk to base to deposit
+			-- 3. Steal egg (hold E / fire carry remote)
+			self:stealEgg(target)
+			task.wait(0.6)   -- let server-side grab register before walking off
+
+			-- 4. Walk to base to deposit
 			local basePos = self:findBasePosition()
-			local deposited, depReason = self:safeWalkTo(basePos, 16)
+			local deposited, depReason = self:safeWalkTo(basePos, 20)
+			if not self.autoFarmAllRunning then break end
 			if not deposited and depReason == "trapped" then
-				self.notify("Animal attacked during delivery! Returning to egg...", "warning")
+				self.notify("Animal attacked during delivery! Waiting...", "warning")
 				while self:isTrapped() and self.autoFarmAllRunning do
 					task.wait(0.5)
 				end
@@ -718,7 +806,7 @@ function Movement:toggleAutoFarmAll(enabled)
 			end
 
 			self:logEggStolen(target)
-			task.wait(0.5)
+			task.wait(0.4)
 		end
 	end)
 end
@@ -938,16 +1026,16 @@ function Movement:toggleMonsterBypass(enabled)
 	end)
 end
 
--- Anti Guard Hit: Freezes guards in GuardAreas, disables touch hitboxes, and suppresses knockback interruptions
+-- Anti Hit Guard: Freezes guards in GuardAreas, disables touch hitboxes, and suppresses knockback interruptions
 function Movement:toggleAntiGuardHit(enabled)
 	if not enabled then
 		self.antiGuardHitRunning = false
-		self.notify("Anti Guard Hit disabled", "info")
+		self.notify("Anti Hit Guard disabled", "info")
 		return
 	end
 
 	self.antiGuardHitRunning = true
-	self.notify("Anti Guard Hit enabled - guards frozen & carry knockback blocked", "success")
+	self.notify("Anti Hit Guard enabled - guards frozen & carry knockback blocked", "success")
 
 	Util.spawn(function()
 		while self.antiGuardHitRunning do
