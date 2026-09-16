@@ -112,10 +112,37 @@ function Movement:neutralizeAntiCheat()
 		workspace:SetAttribute("ClientObbyAntiTp", false)
 	end)
 
+	-- 1. Hook RE/RigSync/CorrectionBegan to prevent client from alerting the server to rubberband
+	pcall(function()
+		local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
+		local reCorrection = networking and networking:FindFirstChild("RE/RigSync/CorrectionBegan")
+		if reCorrection and hookfunction then
+			hookfunction(reCorrection.FireServer, function(...)
+				return nil
+			end)
+		end
+	end)
+
+	if hookmetamethod and not self._hookedCorrection then
+		self._hookedCorrection = true
+		pcall(function()
+			local oldNamecall
+			oldNamecall = hookmetamethod(game, "__namecall", function(selfObj, ...)
+				local method = getnamecallmethod()
+				if (method == "FireServer" or method == "fireServer") and not checkcaller() then
+					if selfObj and (selfObj.Name == "RE/RigSync/CorrectionBegan" or string.find(tostring(selfObj), "CorrectionBegan", 1, true)) then
+						return nil
+					end
+				end
+				return oldNamecall(selfObj, ...)
+			end)
+		end)
+	end
+
 	local function clean(parent)
 		if not parent then return end
 		for _, desc in ipairs(parent:GetDescendants()) do
-			if desc:IsA("LocalScript") and (string.find(desc.Name, "AntiTP", 1, true) or string.find(desc.Name, "AntiTp", 1, true)) then
+			if desc:IsA("LocalScript") and (string.find(desc.Name, "AntiTP", 1, true) or string.find(desc.Name, "AntiTp", 1, true) or string.find(desc.Name, "RigSync", 1, true)) then
 				desc.Disabled = true
 				pcall(function() desc:Destroy() end)
 			end
@@ -510,48 +537,59 @@ function Movement:safeWalkTo(targetPos, timeoutSeconds)
 	return false
 end
 
--- Steals an egg by actively holding E (ProximityPrompt simulation for 1.2s + game remote)
+-- -- Steals an egg by directly invoking RF/EggWorld/AskFieldEggCarry and triggering ProximityPrompt
 function Movement:stealEgg(targetEntry)
 	local _, root = self:_context()
 	if not root or not targetEntry then
 		return false
 	end
 
+	local eggUid = targetEntry.uid
+	local eggModel = targetEntry.model or targetEntry.instance
+	local slotKey = targetEntry.slotKey
+
+	-- 1. Direct invocation of RF/EggWorld/AskFieldEggCarry
+	pcall(function()
+		local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
+		if networking then
+			local rfCarry = networking:FindFirstChild("RF/EggWorld/AskFieldEggCarry")
+			if rfCarry and rfCarry:IsA("RemoteFunction") then
+				pcall(function() rfCarry:InvokeServer(eggUid) end)
+				if slotKey then
+					pcall(function() rfCarry:InvokeServer(eggUid, slotKey) end)
+				end
+				pcall(function() rfCarry:InvokeServer({ Uid = eggUid, SlotKey = slotKey }) end)
+				pcall(function() rfCarry:InvokeServer(eggModel) end)
+			end
+		end
+	end)
+
+	-- 2. Fast ProximityPrompt trigger
 	local prompt = targetEntry.prompt
-	if not prompt and targetEntry.model and targetEntry.model:IsA("Instance") then
-		prompt = EggData.getPrompt(targetEntry.model)
+	if not prompt and eggModel and eggModel:IsA("Instance") then
+		prompt = EggData.getPrompt(eggModel)
 	end
 	if not prompt and targetEntry.instance and targetEntry.instance:IsA("Instance") then
 		prompt = EggData.getPrompt(targetEntry.instance)
 	end
 
 	if prompt and prompt:IsA("ProximityPrompt") then
-		local duration = prompt.HoldDuration
-		if not duration or duration <= 0 then
-			duration = workspace:GetAttribute("FastEggPickupTime") and 0.25 or 1.2
-		end
-
 		if fireproximityprompt then
 			pcall(fireproximityprompt, prompt, 0, true)
-			pcall(fireproximityprompt, prompt, duration, true)
 		end
 
 		pcall(function()
 			prompt:InputHoldBegin()
-		end)
-
-		task.wait(duration + 0.1)
-
-		pcall(function()
+			task.wait(0.12)
 			prompt:InputHoldEnd()
 		end)
 	else
-		task.wait(1.2)
+		task.wait(0.15)
 	end
 
-	if eggStateModule and eggStateModule.CarryFieldEgg and targetEntry.uid then
+	if eggStateModule and eggStateModule.CarryFieldEgg and eggUid then
 		pcall(function()
-			eggStateModule.CarryFieldEgg(targetEntry.uid, targetEntry.slotKey)
+			eggStateModule.CarryFieldEgg(eggUid, slotKey)
 		end)
 	end
 
