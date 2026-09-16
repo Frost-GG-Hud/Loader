@@ -7,11 +7,7 @@
 --   1. the ordered list of executor HTTP implementations (needed before any
 --      module can be downloaded, so it cannot live in a module);
 --   2. the module registry that `ctx.require("ui/Window")` resolves against;
---   3. the boot screen, which doubles as the error reporter.
---
--- Change the repo/branch below if you fork this.
-
-print("[Frost] Loader started")
+--   3. the boot sequence, which runs main.luau with no visible UI overlay.
 
 local ctx = {
 	repo = {
@@ -171,85 +167,31 @@ function ctx.require(modulePath)
 	return value
 end
 
-------------------------------------------------------------------------- boot gui
-
-local boot = Instance.new("ScreenGui")
-boot.Name = "FrostBoot"
-boot.ResetOnSpawn = false
-boot.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-if gethui then
-	pcall(function()
-		boot.Parent = gethui()
-	end)
-end
-if not boot.Parent then
-	pcall(function()
-		boot.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui", 15)
-	end)
-end
-
-local label = Instance.new("TextLabel")
-label.Size = UDim2.new(0, 470, 0, 150)
-label.Position = UDim2.new(0.5, -235, 0, 28)
-label.AnchorPoint = Vector2.new(0.5, 0)
-label.BackgroundColor3 = Color3.fromRGB(10, 27, 22)
-label.BackgroundTransparency = 0.05
-label.BorderSizePixel = 0
-label.TextColor3 = Color3.fromRGB(242, 245, 247)
-label.Font = Enum.Font.GothamBold
-label.TextSize = 15
-label.TextWrapped = true
-label.Text = "Frost\nStarting..."
-label.Parent = boot
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = label
-
-local DANGER = Color3.fromRGB(235, 94, 94)
-local ACCENT = Color3.fromRGB(108, 211, 169)
-
-local function status(text, color)
-	print("[Frost] " .. text)
-	label.TextColor3 = color or Color3.fromRGB(242, 245, 247)
-	label.Text = "Frost\n" .. text
-end
-
-status("Fetching the hub from GitHub...")
+----------------------------------------------------------------------- boot (silent)
 
 local mainSource = nil
 for _, url in ipairs(ctx.buildUrls(ctx.repo.sourceRoot .. "/main.luau", false)) do
-	status("Trying: " .. url)
 	mainSource = ctx.fetch(url)
 	if mainSource then
-		status("Fetched " .. #mainSource .. " bytes. Compiling...")
 		break
 	end
 end
 
 if not mainSource then
-	status("FAILED to download main.luau.\nYour executor cannot reach GitHub.", DANGER)
+	warn("[Frost] FAILED to download main.luau — executor cannot reach GitHub.")
 	return
 end
 
 local mainChunk, mainError = compile(mainSource)
 if not mainChunk then
-	status("Compile error:\n" .. tostring(mainError), DANGER)
+	warn("[Frost] Compile error: " .. tostring(mainError))
 	return
-end
-
-status("Compiled. Starting the hub...")
-if task and task.wait then
-	task.wait(0.1)
 end
 
 -- ctx is passed as `...`: main.luau (and every module it loads) reads it as its
 -- first vararg, which is how dependency injection works across these files.
 local ok, runError = pcall(mainChunk, ctx)
 if not ok then
-	status("Run error:\n" .. tostring(runError), DANGER)
+	warn("[Frost] Run error: " .. tostring(runError))
 	return
 end
-
-boot:Destroy()
-print("[Frost] Loader finished - main.luau is in control")
