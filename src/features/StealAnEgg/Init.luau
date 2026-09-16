@@ -317,8 +317,9 @@ return function(hub, tabs, cleanup)
 	defenseTab:AddButton("Scan Egg Attributes (Console F9)", function()
 		local sample = nil
 		for _, entry in ipairs(EggData.scan(true)) do
-			sample = entry.model or entry.instance
-			if sample and sample:IsA("Instance") then
+			local cand = (typeof(entry.model) == "Instance" and entry.model) or (typeof(entry.instance) == "Instance" and entry.instance) or nil
+			if cand then
+				sample = cand
 				break
 			end
 		end
