@@ -154,55 +154,10 @@ function Movement:_handleRespawn()
 end
 
 function Movement:neutralizeAntiCheat()
+	-- Safe client-side attribute neutralization without destroying game scripts or blocking server sync
 	pcall(function()
 		workspace:SetAttribute("ClientObbyAntiTp", false)
 	end)
-
-	-- 1. Hook RE/RigSync/CorrectionBegan to prevent client from alerting the server to rubberband
-	pcall(function()
-		local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
-		local reCorrection = networking and networking:FindFirstChild("RE/RigSync/CorrectionBegan")
-		if reCorrection and hookfunction then
-			hookfunction(reCorrection.FireServer, function(...)
-				return nil
-			end)
-		end
-	end)
-
-	if hookmetamethod and not self._hookedCorrection then
-		self._hookedCorrection = true
-		pcall(function()
-			local oldNamecall
-			oldNamecall = hookmetamethod(game, "__namecall", function(selfObj, ...)
-				local method = getnamecallmethod()
-				if (method == "FireServer" or method == "fireServer") and not checkcaller() then
-					if selfObj then
-						local name = tostring(selfObj.Name)
-						-- Only block the rubberband position correction remote.
-						-- Do NOT block guard/badge/any other remotes — the server
-						-- uses them for liveness and state sync; blocking = kick.
-						if name == "RE/RigSync/CorrectionBegan" or string.find(name, "CorrectionBegan", 1, true) then
-							return nil
-						end
-					end
-				end
-				return oldNamecall(selfObj, ...)
-			end)
-		end)
-	end
-
-	local function clean(parent)
-		if not parent then return end
-		for _, desc in ipairs(parent:GetDescendants()) do
-			if desc:IsA("LocalScript") and (string.find(desc.Name, "AntiTP", 1, true) or string.find(desc.Name, "AntiTp", 1, true) or string.find(desc.Name, "RigSync", 1, true)) then
-				desc.Disabled = true
-				pcall(function() desc:Destroy() end)
-			end
-		end
-	end
-
-	pcall(function() clean(LocalPlayer:FindFirstChild("PlayerScripts")) end)
-	pcall(function() clean(LocalPlayer.Character) end)
 end
 
 function Movement:setMinMoney(amountStr)
@@ -329,13 +284,22 @@ function Movement:testWebhook()
 end
 
 function Movement:logEggStolen(entry)
-	if not self.webhookEnabled or not self.webhookUrl or self.webhookUrl == "" then
-		return
-	end
+	if not entry then return end
 
 	local cleanDisplay = entry.cleanDisplay or string.format("(%s) %s", entry.eggName or "Normal Egg", entry.petName or "Chicken")
 	local moneyText = entry.moneyText or "+$50/s"
 	local rarity = entry.rarity or "Common"
+
+	-- 1. Always log to Roblox F9 console
+	print(string.format("[Frost] 🥚 Egg Stolen & Deposited: %s | Rarity: %s | Income: %s", cleanDisplay, rarity, moneyText))
+
+	-- 2. Notify HUD
+	self.notify(string.format("Deposited: %s (%s)", cleanDisplay, moneyText), "success")
+
+	-- 3. Discord Webhook if configured
+	if not self.webhookEnabled or not self.webhookUrl or self.webhookUrl == "" then
+		return
+	end
 
 	local rarityColorInt = 16777215
 	if rarity == "Divine" then
@@ -706,11 +670,19 @@ function Movement:toggleAutoFarmBest(enabled)
 			end
 
 			-- 4. Steal egg (hold E / fire carry remote)
+			print(string.format("[Frost] ⚡ Grabbing egg (%s) — sprinting to base!", target.cleanDisplay or target.eggName or "Egg"))
 			self:stealEgg(target)
-			task.wait(0.6)   -- let server-side grab register before walking off
+			task.wait(0.12)
 
-			-- 5. Walk back to player's base plot to deposit
+			-- 5. Walk back to player's base plot to deposit (with initial escape burst away from guard)
 			local basePos = self:findBasePosition()
+			if curRoot and basePos then
+				local awayDir = Vector3.new(basePos.X - curRoot.Position.X, 0, basePos.Z - curRoot.Position.Z)
+				if awayDir.Magnitude > 1 then
+					curRoot.AssemblyLinearVelocity = awayDir.Unit * (self.customSpeed or 60)
+				end
+			end
+
 			local deposited, depReason = self:safeWalkTo(basePos, 22)
 			if not self.autoFarmBestRunning then break end
 			if not deposited and depReason == "trapped" then
@@ -783,11 +755,19 @@ function Movement:toggleAutoFarmAll(enabled)
 			end
 
 			-- 3. Steal egg (hold E / fire carry remote)
+			print(string.format("[Frost] ⚡ Grabbing egg (%s) — sprinting to base!", target.cleanDisplay or target.eggName or "Egg"))
 			self:stealEgg(target)
-			task.wait(0.6)   -- let server-side grab register before walking off
+			task.wait(0.12)
 
-			-- 4. Walk to base to deposit
+			-- 4. Walk to base to deposit (with initial escape burst away from guard)
 			local basePos = self:findBasePosition()
+			if curRoot and basePos then
+				local awayDir = Vector3.new(basePos.X - curRoot.Position.X, 0, basePos.Z - curRoot.Position.Z)
+				if awayDir.Magnitude > 1 then
+					curRoot.AssemblyLinearVelocity = awayDir.Unit * (self.customSpeed or 60)
+				end
+			end
+
 			local deposited, depReason = self:safeWalkTo(basePos, 20)
 			if not self.autoFarmAllRunning then break end
 			if not deposited and depReason == "trapped" then
@@ -1041,7 +1021,7 @@ function Movement:equipBestPets()
 	end
 end
 
--- Anti-Trap: Disables collision, touch detection, and touch transmitters on all traps
+-- Anti-Trap: Disables collision and touch detection on all traps without destroying internal engine instances
 function Movement:toggleAntiTrap(enabled)
 	if not enabled then
 		self.antiTrapRunning = false
@@ -1059,15 +1039,11 @@ function Movement:toggleAntiTrap(enabled)
 					if trap:IsA("BasePart") then
 						trap.CanCollide = false
 						trap.CanTouch = false
-						local tt = trap:FindFirstChildWhichIsA("TouchTransmitter")
-						if tt then pcall(function() tt:Destroy() end) end
 					elseif trap:IsA("Model") then
 						for _, part in ipairs(trap:GetDescendants()) do
 							if part:IsA("BasePart") then
 								part.CanCollide = false
 								part.CanTouch = false
-								local tt = part:FindFirstChildWhichIsA("TouchTransmitter")
-								if tt then pcall(function() tt:Destroy() end) end
 							end
 						end
 					end
@@ -1076,8 +1052,6 @@ function Movement:toggleAntiTrap(enabled)
 					if string.find(string.lower(inst.Name), "trap", 1, true) and inst:IsA("BasePart") then
 						inst.CanCollide = false
 						inst.CanTouch = false
-						local tt = inst:FindFirstChildWhichIsA("TouchTransmitter")
-						if tt then pcall(function() tt:Destroy() end) end
 					end
 				end
 			end)
@@ -1086,7 +1060,7 @@ function Movement:toggleAntiTrap(enabled)
 	end)
 end
 
--- Monster / Guard Bypass: Disables enemy collision, hitboxes, and freezes them
+-- Monster / Guard Bypass: Disables enemy collision and hitboxes
 function Movement:toggleMonsterBypass(enabled)
 	if not enabled then
 		self.monsterBypassRunning = false
@@ -1103,7 +1077,7 @@ function Movement:toggleMonsterBypass(enabled)
 				for _, model in ipairs(workspace:GetDescendants()) do
 					if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") and model ~= Util.getCharacter() then
 						local name = string.lower(model.Name)
-						if string.find(name, "guard") or string.find(name, "monster") or string.find(name, "enemy") or string.find(name, "npc") then
+						if string.find(name, "guard", 1, true) or string.find(name, "monster", 1, true) or string.find(name, "enemy", 1, true) or string.find(name, "npc", 1, true) then
 							local enemyHum = model:FindFirstChildOfClass("Humanoid")
 							if enemyHum then
 								enemyHum.WalkSpeed = 0
@@ -1112,8 +1086,6 @@ function Movement:toggleMonsterBypass(enabled)
 								if part:IsA("BasePart") then
 									part.CanCollide = false
 									part.CanTouch = false
-									local tt = part:FindFirstChildWhichIsA("TouchTransmitter")
-									if tt then pcall(function() tt:Destroy() end) end
 								end
 							end
 						end
@@ -1125,66 +1097,89 @@ function Movement:toggleMonsterBypass(enabled)
 	end)
 end
 
--- Anti Hit Guard: Freezes guards in GuardAreas, disables touch hitboxes, and suppresses knockback interruptions
+-- Anti Hit Guard: Active forcefield repellent, disables guard collision/touch, and completely blocks knockback & egg dropping
 function Movement:toggleAntiGuardHit(enabled)
 	if not enabled then
 		self.antiGuardHitRunning = false
+		if self.connections.antiGuardStepped then
+			self.connections.antiGuardStepped:Disconnect()
+			self.connections.antiGuardStepped = nil
+		end
 		self.notify("Anti Hit Guard disabled", "info")
 		return
 	end
 
 	self.antiGuardHitRunning = true
-	self.notify("Anti Hit Guard enabled - guards frozen & carry knockback blocked", "success")
+	-- Automatically engage anti-ragdoll and anti-knockback
+	self:toggleAntiRagdoll(true)
+	self:toggleAntiKnockback(true)
+	self.notify("Anti Hit Guard active — forcefield, no-touch & immune to drops", "success")
 
-	Util.spawn(function()
-		while self.antiGuardHitRunning do
-			pcall(function()
-				-- 1. Targeted search in workspace.__OBJECTS.Areas.GuardAreas
-				local obj = workspace:FindFirstChild("__OBJECTS")
-				local areas = obj and obj:FindFirstChild("Areas")
-				local guardAreas = areas and areas:FindFirstChild("GuardAreas")
-				if guardAreas then
-					for _, area in ipairs(guardAreas:GetChildren()) do
-						for _, desc in ipairs(area:GetDescendants()) do
-							if desc:IsA("Model") and (desc.Name == "Guard" or desc:FindFirstChildOfClass("Humanoid")) then
-								local hum = desc:FindFirstChildOfClass("Humanoid")
-								if hum then
-									hum.WalkSpeed = 0
-								end
-								for _, p in ipairs(desc:GetDescendants()) do
-									if p:IsA("BasePart") then
-										p.CanCollide = false
-										p.CanTouch = false
-										local tt = p:FindFirstChildWhichIsA("TouchTransmitter")
-										if tt then
-											pcall(function() tt:Destroy() end)
-										end
-									end
-								end
-							end
+	if not self.connections.antiGuardStepped then
+		self.connections.antiGuardStepped = RunService.Stepped:Connect(function()
+			if not self.antiGuardHitRunning then return end
+
+			local char = LocalPlayer.Character
+			local playerRoot = char and char:FindFirstChild("HumanoidRootPart")
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if not playerRoot or not hum then return end
+
+			-- Keep player immune to stun / ragdoll
+			hum.PlatformStand = false
+
+			-- Helper to neutralize a guard model
+			local function neutralizeGuard(guard)
+				if not guard or not guard:IsA("Model") or guard == char then return end
+
+				local guardRoot = guard:FindFirstChild("HumanoidRootPart") or guard:FindFirstChildWhichIsA("BasePart")
+				if guardRoot and playerRoot then
+					local diff = (guardRoot.Position - playerRoot.Position)
+					local dist = diff.Magnitude
+
+					-- Active Repulsion Field: if guard gets within 28 studs, repel them away!
+					if dist < 28 then
+						local pushDir = Vector3.new(diff.X, 0, diff.Z)
+						if pushDir.Magnitude > 0.05 then
+							pushDir = pushDir.Unit
+							pcall(function()
+								guardRoot.AssemblyLinearVelocity = pushDir * 70 + Vector3.new(0, 10, 0)
+								guardRoot.CFrame = guardRoot.CFrame + pushDir * 3
+							end)
 						end
 					end
 				end
 
-				-- 2. General guard fallback across workspace
-				for _, model in ipairs(workspace:GetDescendants()) do
-					if model:IsA("Model") and model ~= Util.getCharacter() and (string.find(string.lower(model.Name), "guard", 1, true) or model.Name == "Guard") then
-						local hum = model:FindFirstChildOfClass("Humanoid")
-						if hum then hum.WalkSpeed = 0 end
-						for _, p in ipairs(model:GetDescendants()) do
-							if p:IsA("BasePart") then
-								p.CanCollide = false
-								p.CanTouch = false
-								local tt = p:FindFirstChildWhichIsA("TouchTransmitter")
-								if tt then pcall(function() tt:Destroy() end) end
-							end
+				-- Disable touch and collision on all guard parts (weapons, bats, limbs)
+				for _, part in ipairs(guard:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanTouch = false
+						part.CanCollide = false
+					end
+				end
+			end
+
+			-- 1. Targeted check in workspace.__OBJECTS.Areas.GuardAreas
+			local obj = workspace:FindFirstChild("__OBJECTS")
+			local areas = obj and obj:FindFirstChild("Areas")
+			local guardAreas = areas and areas:FindFirstChild("GuardAreas")
+			if guardAreas then
+				for _, area in ipairs(guardAreas:GetChildren()) do
+					for _, desc in ipairs(area:GetChildren()) do
+						if desc:IsA("Model") and (desc.Name == "Guard" or string.find(string.lower(desc.Name), "guard", 1, true)) then
+							neutralizeGuard(desc)
 						end
 					end
 				end
-			end)
-			task.wait(1.5)
-		end
-	end)
+			end
+
+			-- 2. General workspace check for any Guard models
+			for _, m in ipairs(workspace:GetChildren()) do
+				if m:IsA("Model") and (m.Name == "Guard" or string.find(string.lower(m.Name), "guard", 1, true)) and m ~= char then
+					neutralizeGuard(m)
+				end
+			end
+		end)
+	end
 end
 
 -- Anti-Ragdoll: Prevents falling down or ragdoll stun
@@ -1213,7 +1208,7 @@ function Movement:toggleAntiRagdoll(enabled)
 	end)
 end
 
--- Anti-Knockback: Stops sudden violent physics velocity from animals and chickens
+-- Anti-Knockback: Clamps horizontal velocity impulses so bat hits and animal attacks cannot launch or drop the egg
 function Movement:toggleAntiKnockback(enabled)
 	self.antiKnockbackRunning = enabled == true
 	if self.antiKnockbackRunning then
@@ -1225,8 +1220,11 @@ function Movement:toggleAntiKnockback(enabled)
 					local pRoot = char and char:FindFirstChild("HumanoidRootPart")
 					if pRoot then
 						local vel = pRoot.AssemblyLinearVelocity
-						if math.abs(vel.X) > 2000 or math.abs(vel.Z) > 2000 then
-							pRoot.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0)
+						local maxAllowed = math.max((self.customSpeed or 60) + 20, 50)
+						local horizSpeed = math.sqrt(vel.X * vel.X + vel.Z * vel.Z)
+						if horizSpeed > maxAllowed then
+							local factor = maxAllowed / horizSpeed
+							pRoot.AssemblyLinearVelocity = Vector3.new(vel.X * factor, vel.Y, vel.Z * factor)
 						end
 					end
 				end
@@ -1239,6 +1237,51 @@ function Movement:toggleAntiKnockback(enabled)
 		end
 		self.notify("Anti-Knockback disabled", "info")
 	end
+end
+
+-- Diagnostics: Dumps all Remotes, GuardAreas, and Player attributes to F9 console
+function Movement:dumpDiagnostics()
+	print("================== [FROST DIAGNOSTICS] ==================")
+	local networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
+	if networking then
+		print("--- Packages.Networking Remotes ---")
+		for _, child in ipairs(networking:GetChildren()) do
+			print(string.format("  [%s] %s", child.ClassName, child.Name))
+		end
+	else
+		print("--- Packages.Networking: NOT FOUND ---")
+	end
+
+	local obj = workspace:FindFirstChild("__OBJECTS")
+	local areas = obj and obj:FindFirstChild("Areas")
+	local guardAreas = areas and areas:FindFirstChild("GuardAreas")
+	if guardAreas then
+		print("--- GuardAreas & Guards ---")
+		for _, area in ipairs(guardAreas:GetChildren()) do
+			local guard = area:FindFirstChild("Guard") or area:FindFirstChildWhichIsA("Model")
+			if guard then
+				local tools = {}
+				for _, d in ipairs(guard:GetDescendants()) do
+					if d:IsA("Tool") or string.find(string.lower(d.Name), "bat", 1, true) or string.find(string.lower(d.Name), "weapon", 1, true) then
+						table.insert(tools, d.Name .. " (" .. d.ClassName .. ")")
+					end
+				end
+				print(string.format("  Area: %s | Guard: %s | Tools: %s", area.Name, guard.Name, #tools > 0 and table.concat(tools, ", ") or "None"))
+			end
+		end
+	else
+		print("--- GuardAreas: NOT FOUND ---")
+	end
+
+	local char = LocalPlayer.Character
+	if char then
+		print("--- Player Character Attributes ---")
+		for k, v in pairs(char:GetAttributes()) do
+			print(string.format("  Attribute: %s = %s", tostring(k), tostring(v)))
+		end
+	end
+	print("==========================================================")
+	self.notify("Diagnostic dump printed to F9 console!", "info")
 end
 
 -- Auto Treadmill: Trains speed automatically on plot treadmill
