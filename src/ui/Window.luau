@@ -35,6 +35,7 @@ function Window.new(opts)
 	opts = opts or {}
 	local self = setmetatable({}, Window)
 
+	self.opts = opts
 	self.accent = opts.Accent or Theme.Accent
 	self.tabs = {}
 	self.tabCount = 0
@@ -114,8 +115,9 @@ function Window:_buildHeader(opts)
 	self.searchQuery = ""
 	self.header = Header.new({
 		parent = self.window,
-		title = opts.Title or "Frost",
-		subtitle = opts.Subtitle or "",
+		title = opts.Title or "Frost Hub",
+		subtitle = opts.Subtitle or "Version 4.6",
+		version = opts.Version or "V4.6",
 		accent = self.accent,
 		onClose = function()
 			self:destroy()
@@ -255,7 +257,7 @@ function Window:_buildBody()
 		Position = UDim2.new(0, 0, 1, -20),
 		Font = Theme.FontRegular,
 		TextSize = 10,
-		Text = "Frost Steel a Egg V4.6",
+		Text = (self.opts and self.opts.Title and (self.opts.Title .. " • " .. (self.opts.Subtitle or "V4.6"))) or "Frost Hub • V4.6",
 		TextColor3 = Theme.TextMuted,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 6,
@@ -438,8 +440,9 @@ function Window:setMinimized(minimized)
 	self.tabList.Visible = not minimized
 	self.content.Visible = not minimized
 	if self.profileCard then self.profileCard.Visible = not minimized end
-	self.resizeHandle.Visible = not minimized
-	self.header.setMinimized(minimized)
+	if self.header.setMinimized then
+		self.header.setMinimized(minimized)
+	end
 
 	if minimized then
 		self.window.Size = UDim2.fromOffset(self.normalSize.X, M.HeaderHeight)
