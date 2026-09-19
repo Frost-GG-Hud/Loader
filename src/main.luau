@@ -54,11 +54,30 @@ local function formatNumber(n)
 	return (formatted:gsub("^,", ""))
 end
 
+local function getGameName()
+	local name = "Universal"
+	pcall(function()
+		local MarketplaceService = game:GetService("MarketplaceService")
+		local info = MarketplaceService:GetProductInfo(game.PlaceId)
+		if info and info.Name and #info.Name > 0 then
+			local cleaned = info.Name:gsub("%b[]%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+			if #cleaned > 0 then
+				name = cleaned
+			else
+				name = info.Name
+			end
+		end
+	end)
+	return name
+end
+
 local function buildHub()
+	local gameName = getGameName()
 	local window = Window.new({
 		Name = "FrostGui",
-		Title = "FROST",
-		Subtitle = "Steel a Egg V4.6",
+		Title = "Frost Hub | " .. gameName,
+		Subtitle = "Version 4.6",
+		Version = "V4.6",
 		Size = Vector2.new(640, 490),
 		ToggleKey = Config.ToggleKey,
 	})
@@ -127,7 +146,7 @@ local function buildHub()
 
 	-- Select Main tab so all action buttons and controls are immediately visible
 	window:select("Main")
-	window:notify("Frost Steal a Egg V4.6 Loaded!", "success")
+	window:notify("Frost Hub | " .. gameName .. " Loaded!", "success")
 
 	return window
 end
