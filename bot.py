@@ -83,6 +83,12 @@ async def key_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
+@tree.command(name="claim", description="Claim the working Frost Hub key and loader script")
+@app_commands.describe(item="Item to claim (default: key)")
+async def claim_command(interaction: discord.Interaction, item: str = "key"):
+    await key_command(interaction)
+
+
 @tree.command(name="setkey", description="Update the current working key and push to GitHub (staff only)")
 @app_commands.describe(key="The new key string for users to unlock the script")
 async def setkey_command(interaction: discord.Interaction, key: str):
