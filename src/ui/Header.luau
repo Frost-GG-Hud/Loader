@@ -73,18 +73,53 @@ function Header.new(config)
 		Transparency = 0.3,
 	})
 
-	-- Left Branding: "FROST"
-	local brandLabel = Builder.label({
-		Name = "BrandTitle",
-		Size = UDim2.new(0, 130, 1, 0),
-		Position = UDim2.fromOffset(14, 0),
-		Font = Theme.FontBold,
-		TextSize = 15,
-		Text = "FROST",
-		TextColor3 = Theme.Accent,
-		TextXAlignment = Enum.TextXAlignment.Left,
+	-- Left Branding: Snowflake Icon + Title + Subtitle (matching reference screenshot)
+	local brandFrame = Builder.frame({
+		Name = "BrandContainer",
+		Size = UDim2.new(0, 215, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+		BackgroundTransparency = 1,
 		ZIndex = 7,
 		Parent = header,
+	})
+
+	local brandIcon = Builder.imageLabel({
+		Name = "BrandIcon",
+		Size = UDim2.fromOffset(20, 20),
+		Position = UDim2.new(0, 0, 0.5, -10),
+		Image = "rbxassetid://7734068321",
+		ImageColor3 = Theme.TextMain,
+		BackgroundTransparency = 1,
+		ZIndex = 8,
+		Parent = brandFrame,
+	})
+
+	local titleLabel = Builder.label({
+		Name = "BrandTitle",
+		Size = UDim2.new(1, -26, 0, 18),
+		Position = UDim2.fromOffset(26, 5),
+		Font = Theme.FontBold,
+		TextSize = 13,
+		Text = config.title or "Frost Hub",
+		TextColor3 = Theme.TextMain,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 8,
+		Parent = brandFrame,
+	})
+
+	local subtitleLabel = Builder.label({
+		Name = "BrandSubtitle",
+		Size = UDim2.new(1, -26, 0, 14),
+		Position = UDim2.fromOffset(26, 23),
+		Font = Theme.FontRegular,
+		TextSize = 10,
+		Text = config.subtitle or "Version 4.6",
+		TextColor3 = Theme.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 8,
+		Parent = brandFrame,
 	})
 
 	-- Search Bar on the Right
@@ -146,12 +181,13 @@ function Header.new(config)
 		Parent = header,
 	})
 
+	local verStr = config.version or "V4.6"
 	local statsLabel = Builder.label({
 		Name = "StatsLabel",
 		Size = UDim2.new(1, 0, 1, 0),
 		Font = Theme.FontMedium,
 		TextSize = 10,
-		Text = "FPS: 60  PING: 15ms  VER: V.528",
+		Text = "FPS: 60  PING: 15ms  VER: " .. verStr,
 		TextColor3 = Theme.AccentDark,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		ZIndex = 8,
@@ -176,7 +212,7 @@ function Header.new(config)
 					ping = math.floor(net:GetValue())
 				end
 			end)
-			statsLabel.Text = string.format("FPS: %d  PING: %dms  VER: V.528", currentFps, ping)
+			statsLabel.Text = string.format("FPS: %d  PING: %dms  VER: %s", currentFps, ping, verStr)
 		end
 	end)
 
@@ -220,6 +256,8 @@ function Header.new(config)
 		searchBox = searchBox,
 		searchInput = searchInput,
 		statsLabel = statsLabel,
+		titleLabel = titleLabel,
+		subtitleLabel = subtitleLabel,
 		destroy = function()
 			if heartbeatConn then
 				heartbeatConn:Disconnect()
