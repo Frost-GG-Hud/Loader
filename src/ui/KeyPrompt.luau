@@ -307,7 +307,7 @@ function KeyPrompt.new(config)
 		Position = UDim2.fromOffset(0, 250),
 		Font = Theme.FontRegular,
 		TextSize = 10,
-		Text = "Get the free key in our Discord via /key command",
+		Text = "Get the free key in our Discord via /claim key command",
 		TextColor3 = Theme.TextMuted,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 4,
@@ -328,7 +328,7 @@ function KeyPrompt.new(config)
 
 		local entered = Util.normalizeKey(box.Text)
 		if entered == "" then
-			setStatus("Please enter or paste your key from /key first.", Theme.Warning)
+			setStatus("Please enter or paste your key from /claim key first.", Theme.Warning)
 			return
 		end
 
