@@ -12,7 +12,7 @@ local Config = {
 	Branch = repo.branch or "main",
 	SourceRoot = repo.sourceRoot or "src",
 	KeyFile = "keys.json",
-	DiscordInvite = "https://discord.gg/TWnmPCxxSY",
+	DiscordInvite = "https://discord.gg/bkyQB5PTf",
 	ToggleKey = Enum.KeyCode.RightShift,
 }
 
