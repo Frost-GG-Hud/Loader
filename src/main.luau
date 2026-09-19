@@ -25,6 +25,35 @@ local function keyLabel(keyCode)
 	return (string.gsub(tostring(keyCode), "^Enum%.KeyCode%.", ""))
 end
 
+local function getExecutionCount()
+	local count = 1
+	pcall(function()
+		local genv = (getgenv and getgenv()) or _G
+		genv.FrostExecutions = (genv.FrostExecutions or 0) + 1
+
+		local fileName = "frost_executions.txt"
+		if isfile and readfile and writefile then
+			if isfile(fileName) then
+				local content = readfile(fileName)
+				local parsed = tonumber(content)
+				if parsed and parsed > 0 then
+					count = parsed + 1
+				end
+			end
+			writefile(fileName, tostring(count))
+		else
+			count = genv.FrostExecutions
+		end
+	end)
+	return count
+end
+
+local function formatNumber(n)
+	local str = tostring(math.floor(n))
+	local formatted = str:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (formatted:gsub("^,", ""))
+end
+
 local function buildHub()
 	local window = Window.new({
 		Name = "FrostGui",
@@ -60,12 +89,15 @@ local function buildHub()
 		warn("[Frost] Error mounting StealAnEgg:", tostring(errSteal))
 	end
 
-	-- 3. Quick Shortcuts & User Session Info on Main Tab
-	mainTab:AddSection("ℹ️ Hub Information & Keybinds")
-	mainTab:AddLabel("• Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating 🥚 icon to hide/show.", false)
-	mainTab:AddLabel("• Top bar displays live FPS, Network Ping, and Version.", false)
-	mainTab:AddLabel("• Check the ➕ Predictor tab for live Egg predictions and stats.", false)
-	mainTab:AddLabel("• Connected as: @" .. LocalPlayer.Name .. "  •  Age: " .. tostring(LocalPlayer.AccountAge) .. " days", false)
+	-- 3. Information & Controls Section on Main Tab (Clean typography, no emojis)
+	local totalExecutions = getExecutionCount()
+	mainTab:AddSection("Information")
+	mainTab:AddLabel("• Total Executions: " .. formatNumber(totalExecutions), false)
+	mainTab:AddLabel("• Controls & Shortcuts: Press " .. keyLabel(Config.ToggleKey) .. " or tap the floating icon to hide/show.", false)
+	mainTab:AddLabel("• Window Controls: Drag top bar to move  •  Drag corner to resize.", false)
+	mainTab:AddLabel("• Live Monitoring: Top bar displays live FPS, Network Ping, and Version.", false)
+	mainTab:AddLabel("• Predictor: Check the Predictor tab for live egg predictions and stats.", false)
+	mainTab:AddLabel("• Connected as: @" .. LocalPlayer.Name .. "  •  Account Age: " .. tostring(LocalPlayer.AccountAge) .. " days", false)
 
 	-- 4. Mount Universal Features (Speed, Jump, Visuals, Server)
 	local okUni, errUni = pcall(function()
